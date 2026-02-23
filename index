@@ -1,1472 +1,1366 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Escape Room · El Castell dels Morley · 2n ESO</title>
+<style>
+  /* ── RESET & BASE ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: radial-gradient(ellipse at 20% 20%, #1e0a3c 0%, #050714 50%, #000 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
 
-// ─── CONFIG ──────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "escape_morley_v4";
-const CODES = { 1: "70831", 2: "19467", 3: "56290", 4: "83914" };
+  /* ── ANIMATIONS ───────────────────────────────────────────── */
+  @keyframes fadeIn   { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeOut  { from { opacity:1; } to { opacity:0; } }
+  @keyframes shake    { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+  @keyframes flicker  { 0%,100%{opacity:.9} 50%{opacity:.5} }
+  @keyframes pulse    { 0%,100%{opacity:.4} 50%{opacity:1} }
+  @keyframes float    { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  @keyframes wave     { 0%,100%{d:path("M0 10 C150 0,350 20,540 8 C700 -2,820 14,900 6 L900 30 L0 30Z")} 50%{d:path("M0 12 C150 4,350 16,540 10 C700 2,820 12,900 8 L900 30 L0 30Z")} }
+  @keyframes shimmer  { 0%,100%{opacity:.12} 50%{opacity:.04} }
+  @keyframes blink    { 0%,100%{opacity:.8} 50%{opacity:.1} }
+  @keyframes spin     { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  @keyframes progress { from{width:0%} to{width:var(--target-width)} }
+  @keyframes drip     { 0%,100%{transform:translateY(0);opacity:.6} 50%{transform:translateY(10px);opacity:0} }
+  @keyframes dash     { to{stroke-dashoffset:-20} }
 
-const EMPTY_STATE = { started:false, current:1, unlocked:{1:false,2:false,3:false,4:false} };
+  /* ── LAYOUT ───────────────────────────────────────────────── */
+  #app { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
+
+  /* ── TOP BAR ──────────────────────────────────────────────── */
+  .topbar {
+    background: rgba(8,9,26,.85); backdrop-filter:blur(20px);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 16px; padding: 16px 24px; margin-bottom: 20px;
+    display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: space-between; gap: 16px;
+  }
+  .topbar-logo {
+    width:44px;height:44px;
+    background:linear-gradient(135deg,#7C3AED,#BE185D);
+    border-radius:12px;display:flex;align-items:center;
+    justify-content:center;font-size:22px;
+    box-shadow:0 4px 20px #7C3AED44;flex-shrink:0;
+  }
+  .topbar-title { font-size:16px;font-weight:900;letter-spacing:-.02em;color:#f1f5f9; }
+  .topbar-sub   { font-size:11px;color:#64748b;margin-top:2px; }
+  .progress-bar-wrap { min-width:160px; }
+  .progress-labels { display:flex;justify-content:space-between;color:#64748b;font-size:11px;margin-bottom:5px; }
+  .progress-track { height:6px;background:#1e293b;border-radius:99px;overflow:hidden; }
+  .progress-fill  { height:100%;background:linear-gradient(90deg,#7C3AED,#BE185D);border-radius:99px;transition:width .5s ease; }
+  .btn-reset {
+    background:#1e293b;border:1px solid #334155;border-radius:10px;
+    padding:9px 14px;color:#94a3b8;font-size:12px;font-weight:600;
+    cursor:pointer;display:flex;align-items:center;gap:6px;
+    transition:color .15s,border-color .15s;
+  }
+  .btn-reset:hover { color:#e2e8f0;border-color:#475569; }
+
+  /* ── GRID ─────────────────────────────────────────────────── */
+  .main-grid { display:grid;grid-template-columns:250px 1fr;gap:20px;align-items:start; }
+  @media(max-width:700px){ .main-grid{grid-template-columns:1fr;} }
+
+  /* ── SIDEBAR ──────────────────────────────────────────────── */
+  .sidebar {
+    background:rgba(8,9,26,.85);backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.07);border-radius:16px;
+    overflow:hidden;position:sticky;top:16px;
+  }
+  .sidebar-map-btn {
+    width:100%;padding:14px 16px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;
+    display:flex;align-items:center;justify-content:space-between;
+    background:transparent;border-left:none;border-right:none;border-top:none;
+    color:#64748b;cursor:pointer;transition:all .2s;
+  }
+  .sidebar-map-btn.active { background:rgba(124,58,237,.13);color:#A78BFA; }
+  .sidebar-nav { padding:8px; }
+  .room-btn {
+    width:100%;text-align:left;padding:11px 12px;border-radius:12px;
+    border:1px solid transparent;background:transparent;
+    cursor:pointer;display:flex;align-items:center;gap:10px;
+    margin-bottom:4px;transition:all .15s;
+  }
+  .room-btn:hover { background:rgba(30,41,59,.5); }
+  .room-btn.active { border-color:var(--room-color-55);background:var(--room-color-18); }
+  .room-icon {
+    width:36px;height:36px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;flex-shrink:0;transition:all .2s;
+  }
+  .room-icon.locked   { background:#1e1b4b;border:1px solid var(--room-color-44); }
+  .room-icon.unlocked { background:#052e16;border:1px solid rgba(22,163,74,.35); }
+  .room-label  { font-size:12px;font-weight:700;color:#e2e8f0; }
+  .room-sublabel { font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .now-badge {
+    display:inline-block;margin-top:3px;padding:2px 8px;
+    border-radius:99px;color:white;font-size:9px;font-weight:700;
+  }
+  .sidebar-clues { margin:8px;padding:12px;background:rgba(12,25,41,.7);border-radius:12px;border:1px solid rgba(30,58,95,.4); }
+  .sidebar-clues-title { color:#60A5FA;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px; }
+  .sidebar-clue-item { color:#7dd3fc;font-size:11px;line-height:1.5;margin-bottom:5px; }
+  .sidebar-footer { padding:10px 16px 14px;border-top:1px solid rgba(255,255,255,.06);color:#334155;font-size:10px; }
+  .sidebar-footer code { color:#7C3AED; }
+
+  /* ── CARDS ────────────────────────────────────────────────── */
+  .card {
+    background:#08091a;border-radius:20px;overflow:hidden;
+    animation: fadeIn .3s ease;
+  }
+  .card-header {
+    padding:24px 28px 20px;
+    border-bottom:1px solid rgba(255,255,255,.05);
+  }
+  .card-header-inner { display:flex;align-items:flex-start;justify-content:space-between;gap:16px; }
+  .card-title { font-size:18px;font-weight:800;letter-spacing:-.02em;color:#e2e8f0;line-height:1.2; }
+  .card-subtitle { font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-top:2px; }
+  .card-vibe { color:#64748b;font-size:12px;font-style:italic;margin-top:8px;display:flex;align-items:center;gap:8px; }
+  .status-badge {
+    padding:6px 14px;border-radius:99px;font-size:12px;font-weight:700;
+    white-space:nowrap;flex-shrink:0;
+  }
+  .status-badge.locked   { background:#1e1b4b;border:1px solid var(--room-color-44);color:#94a3b8; }
+  .status-badge.unlocked { background:#052e16;border:1px solid rgba(22,163,74,.35);color:#4ade80; }
+  .card-body { padding:24px 28px;display:flex;flex-direction:column;gap:20px; }
+
+  /* ── STORY BOX ────────────────────────────────────────────── */
+  .story-box {
+    color:#cbd5e1;font-size:15px;line-height:1.7;
+    padding:16px 20px;background:#0d0d1a;border-radius:12px;
+    border-left:3px solid var(--room-color);
+  }
+
+  /* ── ILLUSTRATION ─────────────────────────────────────────── */
+  .illus-wrap {
+    border-radius:16px;overflow:hidden;
+    border:1px solid var(--room-color-33);
+  }
+  .illus-inner { background:linear-gradient(135deg,#050714,#0f0b1f); }
+  .illus-inner svg { width:100%;height:170px;display:block; }
+  .illus-caption {
+    padding:8px 14px;background:#050714;
+    border-top:1px solid var(--room-color-22);
+    font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;
+    display:flex;align-items:center;gap:6px;
+  }
+
+  /* ── CLUES ────────────────────────────────────────────────── */
+  .clues-box { background:#0c1929;border:1px solid rgba(30,58,95,.35);border-radius:12px;overflow:hidden; }
+  .clues-title { padding:12px 18px;border-bottom:1px solid rgba(30,58,95,.4);color:#60A5FA;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;gap:8px; }
+  .clues-grid { padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+  @media(max-width:500px){ .clues-grid{grid-template-columns:1fr;} }
+  .clue-item { padding:10px 14px;background:#0a1628;border-radius:10px;border:1px solid rgba(30,58,95,.35);color:#93c5fd;font-size:13px;line-height:1.5; }
+
+  /* ── TASKS ────────────────────────────────────────────────── */
+  .tasks-box { background:#08091a;border:1px solid var(--room-color-33);border-radius:14px;overflow:hidden; }
+  .tasks-title { padding:14px 20px;background:var(--room-color-18);border-bottom:1px solid var(--room-color-22);color:#e2e8f0;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.08em; }
+  .tasks-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px; }
+  .task-item { display:flex;align-items:flex-start;gap:12px; }
+  .task-num {
+    min-width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+    background:var(--room-color);border-radius:8px;color:white;font-size:13px;font-weight:800;flex-shrink:0;
+  }
+  .task-text { color:#cbd5e1;font-size:14px;line-height:1.6;padding-top:4px; }
+  .task-note { margin-top:4px;padding:10px 14px;background:rgba(30,27,75,.35);border-radius:8px;color:#94a3b8;font-size:12px; }
+  .task-note strong { color:#c4b5fd; }
+
+  /* ── CODE GATE ────────────────────────────────────────────── */
+  .code-gate { display:flex;flex-direction:column;gap:12px; }
+  .code-gate-info { padding:16px 20px;background:#0d0d1a;border:1px solid rgba(255,255,255,.08);border-radius:12px; }
+  .code-gate-hint { color:#94a3b8;font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:8px; }
+  .code-gate-row { display:flex;gap:10px;flex-wrap:wrap; }
+  .code-input {
+    flex:1;min-width:140px;background:#1e1b4b;
+    border:2px solid var(--room-color-66);border-radius:10px;
+    padding:12px 16px;color:#e2e8f0;font-size:22px;
+    font-family:monospace;letter-spacing:.3em;text-align:center;outline:none;
+    transition:border-color .2s;
+  }
+  .code-input:focus { border-color:var(--room-color); }
+  .code-input.shake { animation:shake .5s ease; }
+  .btn-unlock {
+    border:none;border-radius:10px;padding:12px 20px;
+    color:white;font-size:14px;font-weight:700;cursor:pointer;
+    display:flex;align-items:center;gap:8px;
+    background:var(--room-color-grad);
+    box-shadow:0 4px 20px var(--room-color-44);
+    transition:transform .1s;white-space:nowrap;
+  }
+  .btn-unlock:active { transform:scale(.97); }
+  .code-msg { padding:12px 16px;border-radius:10px;font-size:14px;font-weight:500;animation:fadeIn .2s ease; }
+  .code-msg.ok   { background:#052e16;border:1px solid rgba(22,163,74,.35);color:#4ade80; }
+  .code-msg.err  { background:#1a0a0a;border:1px solid rgba(220,38,38,.35);color:#f87171; }
+  .code-msg.warn { background:#1a1200;border:1px solid rgba(217,119,6,.35);color:#fbbf24; }
+  .unlocked-msg { display:flex;align-items:center;gap:12px;padding:16px 20px;background:#052e16;border:1px solid rgba(22,163,74,.35);border-radius:12px;animation:fadeIn .3s ease; }
+  .unlocked-msg-title { color:#4ade80;font-weight:700;font-size:14px; }
+  .unlocked-msg-sub { color:#86efac;font-size:12px; }
+
+  /* ── NAV BAR ──────────────────────────────────────────────── */
+  .nav-bar {
+    margin-top:16px;background:rgba(8,9,26,.85);backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.07);border-radius:14px;
+    padding:14px 20px;display:flex;align-items:center;
+    justify-content:space-between;gap:16px;flex-wrap:wrap;
+  }
+  .nav-hint { color:#94a3b8;font-size:13px; }
+  .nav-hint strong { color:#c4b5fd; }
+  .nav-btns { display:flex;gap:10px; }
+  .btn-nav {
+    background:#1e293b;border:1px solid #334155;border-radius:10px;
+    padding:10px 16px;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;
+    transition:all .15s;
+  }
+  .btn-nav:hover:not(:disabled) { color:#e2e8f0;border-color:#475569; }
+  .btn-nav:disabled { color:#475569;cursor:not-allowed; }
+  .btn-nav-primary {
+    background:linear-gradient(135deg,#7C3AED,#6d28d9);border:none;
+    border-radius:10px;padding:10px 16px;color:white;font-size:13px;font-weight:600;
+    cursor:pointer;box-shadow:0 4px 16px rgba(124,58,237,.27);
+  }
+
+  /* ── INTRO SCREEN ─────────────────────────────────────────── */
+  #intro {
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 30% 20%,#1e0a3c 0%,#050714 50%,#000 100%);
+    padding:16px;
+  }
+  .intro-wrap { max-width:720px;width:100%;animation:fadeIn .5s ease; }
+  .intro-card {
+    background:rgba(8,9,26,.85);border:1px solid rgba(124,58,237,.27);
+    border-radius:0 0 20px 20px;overflow:hidden;
+  }
+  .intro-warning {
+    padding:10px 24px;background:#1a0a0a;border-bottom:1px solid rgba(127,29,29,.35);
+    display:flex;align-items:center;gap:12px;color:#fca5a5;font-size:13px;font-weight:600;
+  }
+  .intro-warning span:first-child { animation:pulse 1s infinite; }
+  .intro-body { padding:28px 32px; }
+  .intro-badge {
+    display:inline-flex;align-items:center;gap:8px;padding:6px 14px;
+    background:#1e1b4b;border:1px solid rgba(67,56,202,.27);border-radius:99px;
+    color:#a5b4fc;font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.1em;margin-bottom:20px;
+  }
+  .intro-title { font-size:26px;font-weight:900;color:#f1f5f9;letter-spacing:-.03em;margin-bottom:14px;line-height:1.2; }
+  .intro-story {
+    color:#cbd5e1;font-size:15px;line-height:1.8;margin-bottom:20px;
+    border-left:3px solid #7C3AED;padding-left:16px;
+  }
+  .intro-story strong { color:#a78bfa; }
+  .clues-box-intro { background:#0d1117;border:1px solid rgba(30,58,95,.6);border-radius:14px;overflow:hidden;margin-bottom:24px; }
+  .clues-box-intro-title { padding:12px 18px;background:#0c1929;border-bottom:1px solid rgba(30,58,95,.6);color:#60A5FA;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;gap:8px; }
+  .objectives-box { background:#0d0d1a;border:1px solid rgba(124,58,237,.2);border-radius:14px;overflow:hidden;margin-bottom:28px; }
+  .objectives-title { padding:12px 18px;background:rgba(124,58,237,.13);border-bottom:1px solid rgba(124,58,237,.13);color:#c4b5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em; }
+  .objectives-body { padding:14px 18px;display:flex;flex-direction:column;gap:8px; }
+  .obj-item { display:flex;align-items:flex-start;gap:10px; }
+  .obj-num { min-width:22px;height:22px;background:#7C3AED;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:800;flex-shrink:0; }
+  .obj-text { color:#cbd5e1;font-size:13px;padding-top:3px; }
+  .btn-start {
+    width:100%;background:linear-gradient(135deg,#7C3AED,#BE185D);border:none;
+    border-radius:14px;padding:18px;color:white;font-size:17px;font-weight:800;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;
+    box-shadow:0 8px 32px rgba(124,58,237,.35);letter-spacing:-.01em;
+    transition:transform .15s,box-shadow .15s;
+  }
+  .btn-start:hover { transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,58,237,.45); }
+
+  /* ── MAP PANEL ────────────────────────────────────────────── */
+  .map-panel { animation:fadeIn .3s ease; }
+  .map-card { background:#08091a;border:1px solid rgba(124,58,237,.27);border-radius:20px;overflow:hidden;box-shadow:0 0 60px rgba(124,58,237,.1); }
+  .map-header { padding:22px 28px 18px;background:linear-gradient(135deg,rgba(124,58,237,.13) 0%,transparent 60%);border-bottom:1px solid rgba(124,58,237,.13);display:flex;align-items:center;justify-content:space-between; }
+  .map-title { color:#e2e8f0;font-size:18px;font-weight:800;letter-spacing:-.02em; }
+  .map-subtitle { color:#A78BFA;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-top:3px; }
+  .btn-close-map { background:#1e293b;border:1px solid #334155;border-radius:10px;padding:8px 14px;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer; }
+  .map-body { padding:24px 28px;display:flex;flex-direction:column;gap:20px; }
+  .map-story { color:#cbd5e1;font-size:14px;line-height:1.7;padding:14px 18px;background:#0d0d1a;border-radius:12px;border-left:3px solid #7C3AED; }
+  .map-story strong { color:#a78bfa; }
+  .map-svg-wrap { border-radius:16px;overflow:hidden;border:1px solid rgba(124,58,237,.2);background:linear-gradient(135deg,#050714,#0f0b1f); }
+
+  /* ── FINAL SCREEN ─────────────────────────────────────────── */
+  .final-card { background:#08091a;border:1px solid rgba(22,163,74,.35);border-radius:20px;overflow:hidden;box-shadow:0 0 80px rgba(22,163,74,.13);animation:fadeIn .4s ease; }
+  .final-body { padding:40px 32px;text-align:center;background:linear-gradient(135deg,rgba(5,46,22,.27) 0%,transparent 60%); }
+  .final-skull { font-size:64px;margin-bottom:16px;display:block;animation:float 3s ease-in-out infinite; }
+  .final-title { color:#4ade80;font-size:28px;font-weight:900;letter-spacing:-.03em;margin-bottom:12px; }
+  .final-text { color:#86efac;font-size:15px;line-height:1.7;max-width:520px;margin:0 auto 24px; }
+  .final-note { display:inline-flex;align-items:flex-start;gap:10px;padding:16px 24px;background:#052e16;border:1px solid rgba(22,163,74,.35);border-radius:14px;color:#86efac;font-size:14px;margin-bottom:24px;text-align:left;max-width:480px; }
+  .final-note strong { color:#4ade80; }
+  .btn-restart { background:linear-gradient(135deg,#16a34a,#15803d);border:none;border-radius:12px;padding:14px 28px;color:white;font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(22,163,74,.27); }
+
+  /* ── FOOTER ───────────────────────────────────────────────── */
+  footer { text-align:center;color:#1e293b;font-size:11px;margin-top:20px;padding-bottom:16px; }
+
+  /* ── SVG ANIMATIONS ───────────────────────────────────────── */
+  .flicker  { animation:flicker 1.5s ease-in-out infinite; }
+  .flicker2 { animation:flicker 1.8s ease-in-out infinite .3s; }
+  .pulse    { animation:pulse 2s ease-in-out infinite; }
+  .float    { animation:float 2.5s ease-in-out infinite; }
+  .float2   { animation:float 3s ease-in-out infinite .5s; }
+  .float3   { animation:float 2.8s ease-in-out infinite 1s; }
+  .shimmer  { animation:shimmer 3s ease-in-out infinite; }
+  .drip     { animation:drip 2s ease-in-out infinite; }
+  .blink    { animation:blink 2s ease-in-out infinite; }
+  .blink2   { animation:blink 2.5s ease-in-out infinite .4s; }
+  .blink3   { animation:blink 2.2s ease-in-out infinite .8s; }
+  .dash     { animation:dash 1.5s linear infinite; }
+  .dash2    { animation:dash 1.5s linear infinite .5s; }
+  .dash3    { animation:dash 1.5s linear infinite 1s; }
+  .hair1    { animation:float 2.5s ease-in-out infinite 0s; transform-origin:bottom center; }
+  .hair2    { animation:float 2.8s ease-in-out infinite .3s; transform-origin:bottom center; }
+  .hair3    { animation:float 2.3s ease-in-out infinite .6s; transform-origin:bottom center; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     INTRO SCREEN
+═══════════════════════════════════════════════════════════════ -->
+<div id="intro">
+  <div class="intro-wrap">
+
+    <!-- Castle SVG -->
+    <div style="margin-bottom:0;overflow:hidden;border-radius:20px 20px 0 0;">
+      <svg viewBox="0 0 720 180" style="width:100%;height:150px;display:block;background:linear-gradient(135deg,#0b1020,#2a1240);">
+        <!-- Glow -->
+        <radialGradient id="ig" cx="50%" cy="30%" r="60%"><stop offset="0%" stop-color="#7C3AED" stop-opacity=".3"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+        <rect width="720" height="180" fill="url(#ig)"/>
+        <!-- Stars -->
+        <circle cx="30" cy="15" r="1.5" fill="#e2e8f0" opacity=".3" class="pulse"/>
+        <circle cx="80" cy="28" r="1" fill="#e2e8f0" opacity=".2"/>
+        <circle cx="140" cy="12" r="1.5" fill="#e2e8f0" opacity=".25" class="pulse"/>
+        <circle cx="200" cy="30" r="1" fill="#e2e8f0" opacity=".2"/>
+        <circle cx="260" cy="10" r="1" fill="#e2e8f0" opacity=".3" class="pulse"/>
+        <circle cx="320" cy="25" r="1.5" fill="#e2e8f0" opacity=".2"/>
+        <circle cx="390" cy="8" r="1" fill="#e2e8f0" opacity=".25"/>
+        <circle cx="450" cy="22" r="1.5" fill="#e2e8f0" opacity=".3" class="pulse"/>
+        <circle cx="520" cy="15" r="1" fill="#e2e8f0" opacity=".2"/>
+        <circle cx="580" cy="30" r="1.5" fill="#e2e8f0" opacity=".25"/>
+        <circle cx="650" cy="10" r="1" fill="#e2e8f0" opacity=".3" class="pulse"/>
+        <circle cx="700" cy="25" r="1" fill="#e2e8f0" opacity=".2"/>
+        <!-- Moon -->
+        <circle cx="620" cy="42" r="34" fill="#1a0a2e" stroke="#A78BFA" stroke-width="1" stroke-opacity=".3"/>
+        <circle cx="608" cy="35" r="29" fill="#050714"/>
+        <!-- Castle -->
+        <g opacity=".9">
+          <rect x="280" y="55" width="160" height="125" fill="#070810"/>
+          <rect x="285" y="43" width="14" height="15" rx="2" fill="#0a0b14"/>
+          <rect x="305" y="49" width="14" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="325" y="43" width="14" height="15" rx="2" fill="#0a0b14"/>
+          <rect x="345" y="49" width="14" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="365" y="43" width="14" height="15" rx="2" fill="#0a0b14"/>
+          <rect x="385" y="49" width="14" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="405" y="43" width="14" height="15" rx="2" fill="#0a0b14"/>
+          <rect x="200" y="72" width="90" height="108" fill="#080910"/>
+          <rect x="205" y="62" width="10" height="14" rx="2" fill="#0a0b14"/>
+          <rect x="222" y="67" width="10" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="239" y="62" width="10" height="14" rx="2" fill="#0a0b14"/>
+          <rect x="256" y="67" width="10" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="430" y="72" width="90" height="108" fill="#080910"/>
+          <rect x="435" y="62" width="10" height="14" rx="2" fill="#0a0b14"/>
+          <rect x="452" y="67" width="10" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="469" y="62" width="14" height="14" rx="2" fill="#0a0b14"/>
+          <rect x="490" y="67" width="10" height="10" rx="2" fill="#0a0b14"/>
+          <rect x="100" y="92" width="65" height="88" fill="#060709"/>
+          <rect x="555" y="92" width="65" height="88" fill="#060709"/>
+          <!-- Glowing windows -->
+          <rect x="308" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".5" class="pulse"/>
+          <rect x="330" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".4"/>
+          <rect x="352" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".5" class="pulse"/>
+          <rect x="374" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".35"/>
+          <rect x="396" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".45" class="pulse"/>
+          <rect x="218" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".4"/>
+          <rect x="458" y="92" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".4"/>
+          <rect x="113" y="108" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".3" class="pulse"/>
+          <rect x="567" y="108" width="10" height="14" rx="5" fill="#A78BFA" fill-opacity=".3"/>
+          <!-- Gate -->
+          <path d="M316 180 L316 148 Q360 125 404 148 L404 180Z" fill="#050714"/>
+          <line x1="322" y1="180" x2="322" y2="148" stroke="#1e293b" stroke-width="3" stroke-opacity=".7"/>
+          <line x1="340" y1="180" x2="340" y2="148" stroke="#1e293b" stroke-width="3" stroke-opacity=".7"/>
+          <line x1="358" y1="180" x2="358" y2="148" stroke="#1e293b" stroke-width="3" stroke-opacity=".7"/>
+          <line x1="376" y1="180" x2="376" y2="148" stroke="#1e293b" stroke-width="3" stroke-opacity=".7"/>
+          <line x1="394" y1="180" x2="394" y2="148" stroke="#1e293b" stroke-width="3" stroke-opacity=".7"/>
+        </g>
+        <!-- Bats -->
+        <g class="float" style="transform-origin:108px 40px">
+          <path d="M100 40 Q92 32 86 36" stroke="#1e1b4b" stroke-width="2" fill="none"/>
+          <path d="M100 40 Q108 32 114 36" stroke="#1e1b4b" stroke-width="2" fill="none"/>
+          <circle cx="100" cy="40" r="3" fill="#0d0e1a"/>
+        </g>
+        <g class="float2" style="transform-origin:505px 35px">
+          <path d="M497 35 Q489 27 483 31" stroke="#1e1b4b" stroke-width="2" fill="none"/>
+          <path d="M497 35 Q505 27 511 31" stroke="#1e1b4b" stroke-width="2" fill="none"/>
+          <circle cx="497" cy="35" r="3" fill="#0d0e1a"/>
+        </g>
+        <!-- Ground -->
+        <path d="M0 175 C120 162,240 178,360 170 C480 162,600 178,720 168 L720 180 L0 180Z" fill="#050714"/>
+        <!-- Title -->
+        <text x="360" y="175" text-anchor="middle" fill="#A78BFA" font-size="11" fill-opacity=".6" letter-spacing="3" font-family="'Segoe UI',sans-serif">EL CASTELL DELS MORLEY</text>
+      </svg>
+    </div>
+
+    <!-- Content -->
+    <div class="intro-card">
+      <div class="intro-warning">
+        <span>⚠️</span>
+        <span>No pots fer cap errada! Una sola errada i seràs un esclau dels Morley!</span>
+      </div>
+      <div class="intro-body">
+        <div class="intro-badge">🔬 Física i Química · 2n d'ESO · Separació de mescles</div>
+        <h1 class="intro-title">Podreu escapar del castell?</h1>
+        <p class="intro-story">
+          Es fa fosc al castell dels Morley… Has caigut en mans dels maleïts comtes Morley. No et deixen marxar… si no escapes del castell <strong>abans de la mitjanit</strong>, romandràs al seu castell per sempre més i els serviràs la resta dels teus dies…<br><br>
+          Però, no tot està perdut! Si aconsegueixes superar les <strong style="color:#f472b6">quatre proves</strong> que et proposaran, seràs lliure! Només hi ha una condició… No pots fer cap errada!
+        </p>
+
+        <!-- Clues -->
+        <div class="clues-box-intro">
+          <div class="clues-box-intro-title">💡 Pistes que hauries de tenir en compte</div>
+          <div class="clues-grid" style="padding:14px 18px;">
+            <div class="clue-item">🔬 L'alcohol bull a 78,4ºC</div>
+            <div class="clue-item">🧂 La sal és soluble en aigua i en alcohol</div>
+            <div class="clue-item">🍬 El sucre és soluble en aigua però NO en alcohol</div>
+            <div class="clue-item">🟡 El sofre NO és soluble en aigua</div>
+          </div>
+        </div>
+
+        <!-- Objectives -->
+        <div class="objectives-box">
+          <div class="objectives-title">🎯 Objectius de l'activitat</div>
+          <div class="objectives-body">
+            <div class="obj-item"><div class="obj-num">1</div><div class="obj-text">Conèixer les tècniques de separació dels components de les mescles</div></div>
+            <div class="obj-item"><div class="obj-num">2</div><div class="obj-text">Interpretar el concepte de solubilitat</div></div>
+            <div class="obj-item"><div class="obj-num">3</div><div class="obj-text">Conèixer l'instrumental de laboratori necessari</div></div>
+            <div class="obj-item"><div class="obj-num">4</div><div class="obj-text">Dibuixar diagrames de separació</div></div>
+          </div>
+        </div>
+
+        <button class="btn-start" onclick="startGame()">
+          ⚔️ Accepta el repte i entra al castell 🏰
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     MAIN GAME
+═══════════════════════════════════════════════════════════════ -->
+<div id="game" style="display:none;">
+  <div id="app">
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div class="topbar-logo">🏰</div>
+        <div>
+          <div class="topbar-title">Escape Room · El Castell dels Morley</div>
+          <div class="topbar-sub">Física i Química · 2n d'ESO · Separació de mescles</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div class="progress-bar-wrap">
+          <div class="progress-labels">
+            <span>Progrés</span>
+            <span id="progress-text" style="color:#94a3b8;font-weight:600;">0/4 proves</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+        </div>
+        <button class="btn-reset" onclick="resetGame()">🔄 Reinicia</button>
+      </div>
+    </div>
+
+    <!-- Grid -->
+    <div class="main-grid">
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <button class="sidebar-map-btn" id="map-btn" onclick="toggleMap()">
+          <span>🗺️ Mapa del Castell</span>
+          <span id="map-arrow">▼</span>
+        </button>
+        <div class="sidebar-nav" id="sidebar-nav"></div>
+        <div class="sidebar-clues">
+          <div class="sidebar-clues-title">💡 Pistes generals</div>
+          <div class="sidebar-clue-item">🔬 L'alcohol bull a 78,4ºC</div>
+          <div class="sidebar-clue-item">🧂 La sal és soluble en aigua i en alcohol</div>
+          <div class="sidebar-clue-item">🍬 El sucre és soluble en aigua però NO en alcohol</div>
+          <div class="sidebar-clue-item">🟡 El sofre NO és soluble en aigua</div>
+        </div>
+        <div class="sidebar-footer">Codis gestionats per l'objecte <code>CODES</code> al codi font.</div>
+      </div>
+
+      <!-- Main content -->
+      <div id="main-content"></div>
+
+    </div>
+    <footer>INS Santiago Sobrequés i Vidal · Física i Química 2n ESO · Progrés guardat al navegador</footer>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════
+const STORAGE_KEY = 'escape_morley_html_v1';
+const CODES = { 1:'70831', 2:'19467', 3:'56290', 4:'83914' };
+
+const ROOMS = [
+  {
+    id:1, emoji:'🥃', color:'#7C3AED', glow:'#A78BFA',
+    title:'Sal al whisky!', subtitle:'Habitació 1',
+    character:'Nan Johnny Morley', charEmoji:'👺',
+    vibe:"El nan Johnny t'assenyala amb el dit tremolós…",
+    story:"Han dissolt sal dins de la bota de whisky del nan Johnny Morley! En Johnny et demana que aconsegueixis separar l'alcohol del whisky i la sal de la beguda. La sal és la clau per passar a la segona prova, però l'alcohol l'hauràs de guardar i portar-lo a sobre per si el necessites més endavant…",
+    tasks:["Quines tècniques de separació utilitzaries per donar-li al Johnny el que necessita?","Fes els diagrames de separació a la llibreta.","Enumera els estris de laboratori que utilitzaries."],
+    clueIds:[0,1],
+  },
+  {
+    id:2, emoji:'🏔️', color:'#B45309', glow:'#FCD34D',
+    title:'Sorra Dolça', subtitle:'Habitació 2',
+    character:'Gegant McLeod', charEmoji:'👹',
+    vibe:"El gegant McLeod t'agafa amb la mà i t'apropa al seu rostre…",
+    story:"Has entrat al dormitori del gegant McLeod i està enfurismat! Algú li ha posat sucre i pedres a la seva sorra de platja i aquesta nit no podrà fer les glopades de sorra fina que tant li agraden. Diu que si no l'ajudes et farà rentar el lavabo del seu dormitori… i ja et puc assegurar que els lavabos dels gegants no són precisament nets.",
+    tasks:["Com elimines el sucre de la barreja de sucre, sorra i pedres?","Fes els diagrames de separació a la llibreta.","Enumera els estris de laboratori que utilitzaries."],
+    clueIds:[2],
+  },
+  {
+    id:3, emoji:'🧝', color:'#0F766E', glow:'#34D399',
+    title:"La Ferida de l'Elf Lasgole", subtitle:'Habitació 3',
+    character:'Elf Lasgole', charEmoji:'🧝',
+    vibe:"L'elf Lasgole t'apunta amb el seu arc…",
+    story:"Estàs molt a prop de la sortida del castell. L'elf Lasgole s'ha fet una ferida a la mà i et demana que l'ajudis a desinfectar-la amb iode, però els follets li han barrejat el iode amb sal i sorra. Si no aconsegueixes ajudar-lo, et farà servir de diana a les seves pràctiques de tir amb arc. Pista: no oblidis el que has anat recollint a les altres proves…",
+    tasks:["Com separes el iode de la sal i la sorra?","Fes els diagrames de separació a la llibreta.","Enumera els estris de laboratori que faries servir."],
+    clueIds:[0,1,2,3],
+  },
+  {
+    id:4, emoji:'🔮', color:'#BE185D', glow:'#F9A8D4',
+    title:'La Porta de les Tres Claus', subtitle:'Habitació 4',
+    character:'Els follets Isi, Ya i Va', charEmoji:'👻',
+    vibe:"Tres ulls brillants t'observen des de la foscor del llac Isiyava…",
+    story:"Has arribat a la darrera habitació. Els follets Isi, Ya i Va tenen les tres claus de la porta final. El follet Isi et donarà la seva clau si li dones sal per la seva sopa. El follet Ya la seva si li dones sucre per al seu cafè. El follet Va la seva si li dones sofre per preparar el foc valiry que destruirà el castell. Et presenten una barreja de sal, sucre i sofre.",
+    tasks:["Com separes la sal, el sucre i el sofre de la mescla?","Fes el diagrama de separació complet a la llibreta.","Enumera tot l'instrumental necessari."],
+    clueIds:[0,1,2,3],
+  }
+];
 
 const CLUES = [
   "🔬 L'alcohol bull a 78,4ºC",
   "🧂 La sal és soluble en aigua i en alcohol",
   "🍬 El sucre és soluble en aigua però NO en alcohol",
-  "🟡 El sofre NO és soluble en aigua",
+  "🟡 El sofre NO és soluble en aigua"
 ];
 
-const ROOMS = [
-  {
-    id: 1,
-    emoji: "🥃",
-    color: "#7C3AED",
-    glow: "#A78BFA",
-    title: "Sal al whisky!",
-    subtitle: "Habitació 1",
-    character: "Nan Johnny Morley",
-    charEmoji: "👺",
-    vibe: "El nan Johnny t'assenyala amb el dit tremolós…",
-    story: "Han dissolt sal dins de la bota de whisky del nan Johnny Morley! En Johnny et demana que aconsegueixis separar l'alcohol del whisky i la sal de la beguda. La sal és la clau per passar a la segona prova, però l'alcohol l'hauràs de guardar i portar-lo a sobre per si el necessites més endavant…",
-    tasks: [
-      "Quines tècniques de separació utilitzaries per donar-li al Johnny el que necessita?",
-      "Fes els diagrames de separació a la llibreta.",
-      "Enumera els estris de laboratori que utilitzaries.",
-    ],
-    clueIds: [0, 1],
-  },
-  {
-    id: 2,
-    emoji: "🏔️",
-    color: "#B45309",
-    glow: "#FCD34D",
-    title: "Sorra Dolça",
-    subtitle: "Habitació 2",
-    character: "Gegant McLeod",
-    charEmoji: "👹",
-    vibe: "El gegant McLeod t'agafa amb la mà i t'apropa al seu rostre…",
-    story: "Has entrat al dormitori del gegant McLeod i està enfurismat! Algú li ha posat sucre i pedres a la seva sorra de platja i aquesta nit no podrà fer les glopades de sorra fina que tant li agraden. Diu que si no l'ajudes et farà rentar el lavabo del seu dormitori… i ja et puc assegurar que els lavabos dels gegants no són precisament nets.",
-    tasks: [
-      "Com elimines el sucre de la barreja de sucre, sorra i pedres?",
-      "Fes els diagrames de separació a la llibreta.",
-      "Enumera els estris de laboratori que utilitzaries.",
-    ],
-    clueIds: [2],
-  },
-  {
-    id: 3,
-    emoji: "🧝",
-    color: "#0F766E",
-    glow: "#34D399",
-    title: "La Ferida de l'Elf Lasgole",
-    subtitle: "Habitació 3",
-    character: "Elf Lasgole",
-    charEmoji: "🧝",
-    vibe: "L'elf Lasgole t'apunta amb el seu arc…",
-    story: "Estàs molt a prop de la sortida del castell. L'elf Lasgole s'ha fet una ferida a la mà i et demana que l'ajudis a desinfectar-la amb iode, però els follets li han barrejat el iode amb sal i sorra. Si no aconsegueixes ajudar-lo, et farà servir de diana a les seves pràctiques de tir amb arc. Pista: no oblidis el que has anat recollint a les altres proves…",
-    tasks: [
-      "Com separes el iode de la sal i la sorra?",
-      "Fes els diagrames de separació a la llibreta.",
-      "Enumera els estris de laboratori que faries servir.",
-    ],
-    clueIds: [0, 1, 2, 3],
-  },
-  {
-    id: 4,
-    emoji: "🔮",
-    color: "#BE185D",
-    glow: "#F9A8D4",
-    title: "La Porta de les Tres Claus",
-    subtitle: "Habitació 4",
-    character: "Els follets Isi, Ya i Va",
-    charEmoji: "👻",
-    vibe: "Tres ulls brillants t'observen des de la foscor del llac Isiyava…",
-    story: "Has arribat a la darrera habitació. Els follets Isi, Ya i Va tenen les tres claus de la porta final. El follet Isi et donarà la seva clau si li dones sal per la seva sopa. El follet Ya la seva si li dones sucre per al seu cafè. El follet Va la seva si li dones sofre per preparar el foc valiry que destruirà el castell. Et presenten una barreja de sal, sucre i sofre.",
-    tasks: [
-      "Com separes la sal, el sucre i el sofre de la mescla?",
-      "Fes el diagrama de separació complet a la llibreta.",
-      "Enumera tot l'instrumental necessari.",
-    ],
-    clueIds: [0, 1, 2, 3],
-  },
-];
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let state = { current:1, unlocked:{1:false,2:false,3:false,4:false}, showMap:false };
 
-// ─── UTILS ───────────────────────────────────────────────────────────────────
-function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
-
-// ─── ILLUSTRATIONS ────────────────────────────────────────────────────────────
-function Room1Illustration({ color }) {
-  // Scene: castle cellar, big whisky barrel, angry dwarf Johnny — NO lab technique hints
-  return (
-    <svg viewBox="0 0 900 220" style={{ width: "100%", height: "170px", display: "block" }}>
-      <defs>
-        <radialGradient id="r1bg" cx="55%" cy="40%" r="55%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.15"/>
-          <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-        </radialGradient>
-        <linearGradient id="r1barrel" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#3d2008"/>
-          <stop offset="50%" stopColor="#5c3a1e"/>
-          <stop offset="100%" stopColor="#3d2008"/>
-        </linearGradient>
-        <linearGradient id="r1liquid" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#b45309" stopOpacity="0.85"/>
-          <stop offset="100%" stopColor="#78350f" stopOpacity="0.95"/>
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="900" height="220" fill="url(#r1bg)"/>
-
-      {/* Stars */}
-      {[60,130,210,300,420,510,600,680,770,850].map((x,i)=>(
-        <circle key={i} cx={x} cy={14+(i%5)*16} r={i%3===0?1.5:1} fill="#e2e8f0" opacity="0.16"/>
-      ))}
-
-      {/* Castle cellar wall */}
-      <path d="M0 130 L0 80 L40 80 L40 65 L65 65 L65 80 L110 80 L110 60 L135 42 L160 60 L160 80 L230 80 L230 65 L255 65 L255 80 L900 80 L900 220 L0 220Z" fill="#0a0b14"/>
-      {/* Stone texture lines */}
-      {[100,130,160].map(y=>(
-        <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="#ffffff" strokeWidth="0.5" strokeOpacity="0.04"/>
-      ))}
-      {[80,160,240,320,400,480,560,640,720,800].map((x,i)=>(
-        <line key={x} x1={x} y1={i%2===0?80:105} x2={x} y2={i%2===0?105:130} stroke="#ffffff" strokeWidth="0.5" strokeOpacity="0.04"/>
-      ))}
-      {/* Candle on wall */}
-      <g transform="translate(760,88)">
-        <rect x="8" y="20" width="10" height="22" rx="2" fill="#d4a96a" fillOpacity="0.7"/>
-        <motion.path d="M13 20 Q10 12 13 6 Q16 12 13 20" fill="#fbbf24" fillOpacity="0.9"
-          animate={{ d:["M13 20 Q10 12 13 6 Q16 12 13 20","M13 20 Q11 10 14 5 Q15 13 13 20","M13 20 Q10 12 13 6 Q16 12 13 20"] }}
-          transition={{ duration:1.5, repeat:Infinity }}/>
-        <motion.ellipse cx="13" cy="14" rx="12" ry="8" fill="#fbbf24" fillOpacity="0.08"
-          animate={{ rx:[12,18,12], opacity:[0.08,0.18,0.08] }}
-          transition={{ duration:1.5, repeat:Infinity }}/>
-      </g>
-      {/* Second candle */}
-      <g transform="translate(110,88)">
-        <rect x="8" y="20" width="10" height="18" rx="2" fill="#d4a96a" fillOpacity="0.6"/>
-        <motion.path d="M13 20 Q10 13 13 7 Q16 13 13 20" fill="#fbbf24" fillOpacity="0.8"
-          animate={{ d:["M13 20 Q10 13 13 7 Q16 13 13 20","M13 20 Q12 11 14 6 Q15 14 13 20","M13 20 Q10 13 13 7 Q16 13 13 20"] }}
-          transition={{ duration:1.8, repeat:Infinity, delay:0.3 }}/>
-      </g>
-
-      {/* Multiple barrels in cellar */}
-      {/* Big central barrel */}
-      <g transform="translate(380,62)">
-        <ellipse cx="70" cy="22" rx="70" ry="18" fill="#3d2008"/>
-        <rect x="0" y="22" width="140" height="118" fill="url(#r1barrel)" rx="5"/>
-        <ellipse cx="70" cy="140" rx="70" ry="18" fill="#3d2008"/>
-        {/* rings */}
-        {[38,72,106].map(y=>(
-          <rect key={y} x="0" y={y} width="140" height="7" rx="3" fill="#2a1505" opacity="0.8"/>
-        ))}
-        {/* Liquid top */}
-        <ellipse cx="70" cy="22" rx="56" ry="11" fill="url(#r1liquid)" opacity="0.8"/>
-        {/* Liquid shimmer */}
-        <motion.ellipse cx="55" cy="18" rx="25" ry="5" fill="#fbbf24" fillOpacity="0.12"
-          animate={{ cx:[55,75,55], fillOpacity:[0.12,0.04,0.12] }}
-          transition={{ duration:3, repeat:Infinity }}/>
-        {/* Tap */}
-        <g transform="translate(55,118)">
-          <rect x="0" y="0" width="30" height="12" rx="5" fill="#6b5010"/>
-          <rect x="26" y="3" width="18" height="6" rx="3" fill="#78350f"/>
-          {/* drip */}
-          <motion.circle cx="44" cy="12" r="4" fill={color} fillOpacity="0.5"
-            animate={{ cy:[12,22,12], r:[4,3,4], opacity:[0.5,0,0.5] }}
-            transition={{ duration:2, repeat:Infinity }}/>
-        </g>
-        <text x="70" y="170" textAnchor="middle" fill="#92400e" fontSize="13" fontWeight="700" fillOpacity="0.8">whisky del Johnny</text>
-      </g>
-
-      {/* Small barrel left */}
-      <g transform="translate(280,110)">
-        <ellipse cx="35" cy="12" rx="35" ry="10" fill="#2a1505"/>
-        <rect x="0" y="12" width="70" height="75" fill="#3d2008" rx="3"/>
-        <ellipse cx="35" cy="87" rx="35" ry="10" fill="#2a1505"/>
-        {[25,48,70].map(y=>(<rect key={y} x="0" y={y} width="70" height="5" rx="2" fill="#1a0f03" opacity="0.7"/>))}
-      </g>
-
-      {/* Small barrel right (tipped over) */}
-      <g transform="translate(640,130) rotate(-20)">
-        <ellipse cx="30" cy="10" rx="30" ry="9" fill="#2a1505"/>
-        <rect x="0" y="10" width="60" height="62" fill="#3d2008" rx="3"/>
-        <ellipse cx="30" cy="72" rx="30" ry="9" fill="#2a1505"/>
-        {[22,42,62].map(y=>(<rect key={y} x="0" y={y} width="60" height="4" rx="2" fill="#1a0f03" opacity="0.7"/>))}
-      </g>
-
-      {/* Puddle on floor (spilled whisky) */}
-      <motion.ellipse cx="680" cy="195" rx="55" ry="12" fill="#b45309" fillOpacity="0.35"
-        animate={{ rx:[55,60,55], fillOpacity:[0.35,0.2,0.35] }}
-        transition={{ duration:3, repeat:Infinity }}/>
-
-      {/* Dwarf Johnny — big angry silhouette */}
-      <g transform="translate(150,72)" opacity="0.92">
-        {/* Thick legs */}
-        <rect x="20" y="115" width="22" height="40" rx="8" fill="#0d0e1a"/>
-        <rect x="52" y="115" width="22" height="40" rx="8" fill="#0d0e1a"/>
-        {/* Stout body */}
-        <ellipse cx="47" cy="100" rx="38" ry="42" fill="#0d0e1a"/>
-        {/* Beard long */}
-        <path d="M18 75 Q47 105 76 75 Q72 130 47 135 Q22 130 18 75Z" fill="#12102a" opacity="0.85"/>
-        {/* Head wide */}
-        <circle cx="47" cy="52" r="32" fill="#0d0e1a"/>
-        {/* Big nose */}
-        <ellipse cx="47" cy="60" rx="10" ry="8" fill="#0f0e1f"/>
-        {/* Eyes — furious glow */}
-        <ellipse cx="34" cy="44" rx="7" ry="8" fill={color} fillOpacity="0.95"/>
-        <ellipse cx="60" cy="44" rx="7" ry="8" fill={color} fillOpacity="0.95"/>
-        <circle cx="34" cy="44" r="3" fill="#000"/>
-        <circle cx="60" cy="44" r="3" fill="#000"/>
-        {/* Angry brows */}
-        <path d="M26 37 L42 42" stroke="#e2e8f0" strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6"/>
-        <path d="M52 42 L68 37" stroke="#e2e8f0" strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6"/>
-        {/* Pointy hat */}
-        <path d="M20 32 L47 -15 L74 32Z" fill="#0a0b14"/>
-        <rect x="14" y="29" width="66" height="9" rx="4" fill="#12102a"/>
-        {/* Hat buckle */}
-        <rect x="40" y="31" width="14" height="6" rx="2" fill={color} fillOpacity="0.4"/>
-        {/* Fist raised in anger */}
-        <path d="M85 80 Q115 55 130 40" stroke="#0d0e1a" strokeWidth="16" strokeLinecap="round" fill="none"/>
-        <ellipse cx="133" cy="36" rx="14" ry="12" fill="#0d0e1a"/>
-        {/* Speech bubble */}
-        <g transform="translate(125,-20)">
-          <rect x="0" y="0" width="80" height="36" rx="10" fill="#12102a" stroke={color} strokeWidth="1.5" strokeOpacity="0.5"/>
-          <path d="M15 36 L5 50 L28 36Z" fill="#12102a" stroke={color} strokeWidth="1" strokeOpacity="0.4"/>
-          <text x="40" y="14" textAnchor="middle" fill={color} fontSize="10" fontWeight="700" fillOpacity="0.9">On és</text>
-          <text x="40" y="28" textAnchor="middle" fill={color} fontSize="10" fontWeight="700" fillOpacity="0.9">el meu whisky?!</text>
-        </g>
-      </g>
-
-      {/* Salt bag on floor */}
-      <g transform="translate(580,155)">
-        <path d="M0 0 Q5 -40 30 -42 Q55 -40 60 0 Q50 15 30 15 Q10 15 0 0Z" fill="#1e293b" stroke="#475569" strokeWidth="1.5" strokeOpacity="0.5"/>
-        <text x="30" y="-18" textAnchor="middle" fill="white" fontSize="11" fillOpacity="0.5">SAL</text>
-        {/* Salt spill */}
-        {[2,10,18,26,34].map((x,i)=>(
-          <ellipse key={i} cx={x+55} cy={12+(i%2)*4} rx="3" ry="1.5" fill="white" fillOpacity="0.25"/>
-        ))}
-      </g>
-    </svg>
-  );
+function loadState() {
+  try { const s = localStorage.getItem(STORAGE_KEY); if(s) return JSON.parse(s); } catch{}
+  return null;
+}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({current:state.current, unlocked:state.unlocked})); } catch{}
 }
 
-function Room2Illustration({ color }) {
-  // Scene: giant McLeod's bedroom, pile of contaminated beach sand, furious giant — NO lab technique hints
-  return (
-    <svg viewBox="0 0 900 220" style={{ width: "100%", height: "170px", display: "block" }}>
-      <defs>
-        <radialGradient id="r2bg" cx="65%" cy="35%" r="55%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.16"/>
-          <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-        </radialGradient>
-        <linearGradient id="r2floor" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#1c1107"/>
-          <stop offset="100%" stopColor="#0a0805"/>
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="900" height="220" fill="url(#r2bg)"/>
-
-      {/* Stars */}
-      {[50,130,220,310,400,490,580,670,760,850].map((x,i)=>(
-        <motion.circle key={i} cx={x} cy={12+(i%6)*14} r={i%4===0?1.8:1} fill="#e2e8f0"
-          animate={{ opacity:[0.1,0.35,0.1] }} transition={{ duration:2.5+i*0.3,repeat:Infinity,delay:i*0.2 }}/>
-      ))}
-
-      {/* Bedroom ceiling/wall */}
-      <rect x="0" y="0" width="900" height="90" fill="#07080e"/>
-      <rect x="0" y="88" width="900" height="4" fill="#0d0e1a"/>
-
-      {/* Chains hanging from ceiling (giant bedroom decor) */}
-      {[120,200,700,790].map((x,i)=>(
-        <g key={i}>
-          {[0,1,2,3].map(j=>(
-            <ellipse key={j} cx={x} cy={10+j*18} rx="4" ry="6" fill="none" stroke="#334155" strokeWidth="1.5" strokeOpacity="0.5"/>
-          ))}
-        </g>
-      ))}
-      {/* Torch on wall */}
-      <g transform="translate(340,30)">
-        <rect x="0" y="25" width="12" height="30" rx="3" fill="#44240a" fillOpacity="0.8"/>
-        <motion.path d="M6 25 Q2 15 6 5 Q10 15 6 25" fill="#f97316" fillOpacity="0.9"
-          animate={{ d:["M6 25 Q2 15 6 5 Q10 15 6 25","M6 25 Q3 13 7 4 Q9 16 6 25","M6 25 Q2 15 6 5 Q10 15 6 25"] }}
-          transition={{ duration:1.2, repeat:Infinity }}/>
-        <motion.ellipse cx="6" cy="15" rx="14" ry="10" fill="#f97316" fillOpacity="0.06"
-          animate={{ rx:[14,20,14] }} transition={{ duration:1.2, repeat:Infinity }}/>
-      </g>
-      <g transform="translate(560,30)">
-        <rect x="0" y="25" width="12" height="30" rx="3" fill="#44240a" fillOpacity="0.8"/>
-        <motion.path d="M6 25 Q2 15 6 5 Q10 15 6 25" fill="#f97316" fillOpacity="0.8"
-          animate={{ d:["M6 25 Q2 15 6 5 Q10 15 6 25","M6 25 Q4 12 7 3 Q9 17 6 25","M6 25 Q2 15 6 5 Q10 15 6 25"] }}
-          transition={{ duration:1.5, repeat:Infinity, delay:0.4 }}/>
-      </g>
-
-      {/* Floor */}
-      <rect x="0" y="155" width="900" height="65" fill="url(#r2floor)"/>
-      {/* Floor planks */}
-      {[0,90,180,270,360,450,540,630,720,810].map((x,i)=>(
-        <line key={x} x1={x} y1="155" x2={x+80} y2="220" stroke="#ffffff" strokeWidth="0.5" strokeOpacity="0.04"/>
-      ))}
-
-      {/* Enormous bed (giant-sized) */}
-      <g transform="translate(560,110)">
-        {/* Headboard */}
-        <rect x="0" y="0" width="310" height="50" rx="8" fill="#1c0f06" stroke="#2d1a0a" strokeWidth="2"/>
-        {[20,60,100,140,180,220,260].map((x,i)=>(
-          <rect key={i} x={x} y={5} width="25" height="38" rx="4" fill="#251208" opacity="0.8"/>
-        ))}
-        {/* Bed frame */}
-        <rect x="0" y="48" width="310" height="90" rx="4" fill="#180e05"/>
-        {/* Mattress */}
-        <rect x="5" y="48" width="300" height="80" rx="6" fill="#1e1410" stroke="#2d2010" strokeWidth="1"/>
-        {/* Pillow */}
-        <rect x="15" y="52" width="80" height="45" rx="10" fill="#2a1e12" stroke="#3d2e1a" strokeWidth="1"/>
-      </g>
-
-      {/* Big pile of SAND + SUGAR + STONES mixture */}
-      <g transform="translate(250,125)">
-        {/* Main sand mound */}
-        <path d="M0 90 Q80 30 200 45 Q310 28 370 90Z" fill="#92400e" fillOpacity="0.7"/>
-        <path d="M20 90 Q90 45 180 52 Q280 40 350 90Z" fill="#b45309" fillOpacity="0.5"/>
-        {/* Sugar mixed in (white patches) */}
-        {[30,75,120,165,220,280].map((x,i)=>(
-          <ellipse key={i} cx={x} cy={75-(i%3)*8} rx="16" ry="6" fill="white" fillOpacity="0.2"/>
-        ))}
-        {/* Rocks/stones */}
-        {[50,110,170,240,305].map((x,i)=>(
-          <ellipse key={i} cx={x} cy={78+(i%2)*8} rx={14+i%3*4} ry={9+i%2*3} fill="#334155" stroke="#475569" strokeWidth="1" strokeOpacity="0.5"/>
-        ))}
-        {/* Label */}
-        <text x="185" y="108" textAnchor="middle" fill="#f59e0b" fontSize="13" fontWeight="700" fillOpacity="0.8">
-          Sorra + sucre + pedres
-        </text>
-      </g>
-
-      {/* Giant McLeod silhouette */}
-      <g transform="translate(30,10)" opacity="0.92">
-        {/* Enormous legs */}
-        <rect x="30" y="160" width="36" height="55" rx="12" fill="#0d0e1a"/>
-        <rect x="80" y="160" width="36" height="55" rx="12" fill="#0d0e1a"/>
-        {/* Body huge */}
-        <ellipse cx="73" cy="140" rx="58" ry="70" fill="#0d0e1a"/>
-        {/* Belly button detail */}
-        <circle cx="73" cy="155" r="6" fill="#0f0e1f" fillOpacity="0.6"/>
-        {/* Head */}
-        <circle cx="73" cy="60" r="52" fill="#0d0e1a"/>
-        {/* Messy wild hair */}
-        {[-40,-28,-14,0,14,28,40].map((dx,i)=>(
-          <motion.path key={i} d={`M${73+dx} 14 Q${73+dx+(i%2?8:-8)} -8 ${73+dx+(i%2?4:-4)} -18`}
-            stroke="#0f0e1f" strokeWidth="8" fill="none" strokeLinecap="round"
-            animate={{ d:[`M${73+dx} 14 Q${73+dx+(i%2?8:-8)} -8 ${73+dx+(i%2?4:-4)} -18`,`M${73+dx} 14 Q${73+dx+(i%2?-5:5)} -10 ${73+dx+(i%2?6:-6)} -20`,`M${73+dx} 14 Q${73+dx+(i%2?8:-8)} -8 ${73+dx+(i%2?4:-4)} -18`] }}
-            transition={{ duration:2.5+i*0.25,repeat:Infinity }}/>
-        ))}
-        {/* Angry eyes */}
-        <path d="M44 48 Q58 40 72 48" stroke={color} strokeWidth="3.5" fill="none"/>
-        <path d="M74 48 Q88 40 102 48" stroke={color} strokeWidth="3.5" fill="none"/>
-        <ellipse cx="58" cy="56" rx="9" ry="10" fill={color} fillOpacity="0.85"/>
-        <ellipse cx="88" cy="56" rx="9" ry="10" fill={color} fillOpacity="0.85"/>
-        <circle cx="58" cy="56" r="4" fill="#000"/>
-        <circle cx="88" cy="56" r="4" fill="#000"/>
-        {/* Big nose */}
-        <ellipse cx="73" cy="72" rx="12" ry="9" fill="#0f0e1f" opacity="0.8"/>
-        {/* Angry mouth */}
-        <path d="M52 88 Q73 80 94 88" fill="none" stroke="#e2e8f0" strokeWidth="2" strokeOpacity="0.3"/>
-        {[58,68,78,88].map((x,i)=>(<line key={i} x1={x} y1="88" x2={x} y2="96" stroke="#e2e8f0" strokeWidth="1.5" strokeOpacity="0.25"/>))}
-        {/* Arm pointing at sand angrily */}
-        <path d="M131 110 Q175 130 230 150" stroke="#0d0e1a" strokeWidth="22" strokeLinecap="round" fill="none"/>
-        <path d="M131 110 Q175 130 230 150" stroke="#0f0e1f" strokeWidth="12" strokeLinecap="round" fill="none"/>
-        {/* Fist */}
-        <ellipse cx="235" cy="153" rx="18" ry="15" fill="#0d0e1a"/>
-        {/* Speech bubble */}
-        <g transform="translate(135,-30)">
-          <rect x="0" y="0" width="110" height="42" rx="12" fill="#0f0e1f" stroke={color} strokeWidth="1.5" strokeOpacity="0.5"/>
-          <path d="M20 42 L10 58 L38 42Z" fill="#0f0e1f"/>
-          <text x="55" y="16" textAnchor="middle" fill={color} fontSize="11" fontWeight="700">M'han embruixat</text>
-          <text x="55" y="30" textAnchor="middle" fill={color} fontSize="11" fontWeight="700">la sorra!!!</text>
-        </g>
-      </g>
-    </svg>
-  );
+// ═══════════════════════════════════════════════════════
+// ILLUSTRATIONS (inline SVG strings)
+// ═══════════════════════════════════════════════════════
+function svgRoom1(color) {
+  return `<svg viewBox="0 0 900 220" style="width:100%;height:170px;display:block;">
+  <defs>
+    <radialGradient id="r1bg" cx="55%" cy="40%" r="55%"><stop offset="0%" stop-color="${color}" stop-opacity=".15"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <linearGradient id="r1bar" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3d2008"/><stop offset="50%" stop-color="#5c3a1e"/><stop offset="100%" stop-color="#3d2008"/></linearGradient>
+    <linearGradient id="r1liq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#b45309" stop-opacity=".85"/><stop offset="100%" stop-color="#78350f" stop-opacity=".95"/></linearGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="220" fill="url(#r1bg)"/>
+  <!-- stars -->
+  <circle cx="60"  cy="14" r="1.5" fill="#e2e8f0" opacity=".16"/>
+  <circle cx="130" cy="30" r="1"   fill="#e2e8f0" opacity=".14"/>
+  <circle cx="210" cy="12" r="1.5" fill="#e2e8f0" opacity=".16"/>
+  <circle cx="300" cy="26" r="1"   fill="#e2e8f0" opacity=".12"/>
+  <circle cx="420" cy="18" r="1.5" fill="#e2e8f0" opacity=".16" class="pulse"/>
+  <circle cx="510" cy="8"  r="1"   fill="#e2e8f0" opacity=".14"/>
+  <circle cx="600" cy="22" r="1.5" fill="#e2e8f0" opacity=".12"/>
+  <circle cx="680" cy="10" r="1"   fill="#e2e8f0" opacity=".16" class="pulse"/>
+  <circle cx="770" cy="28" r="1.5" fill="#e2e8f0" opacity=".14"/>
+  <circle cx="850" cy="16" r="1"   fill="#e2e8f0" opacity=".12"/>
+  <!-- wall -->
+  <path d="M0 130 L0 80 L40 80 L40 65 L65 65 L65 80 L110 80 L110 60 L135 42 L160 60 L160 80 L230 80 L230 65 L255 65 L255 80 L900 80 L900 220 L0 220Z" fill="#0a0b14"/>
+  <!-- candle 1 -->
+  <rect x="768" y="108" width="10" height="22" rx="2" fill="#d4a96a" fill-opacity=".7"/>
+  <path d="M773 108 Q770 100 773 94 Q776 100 773 108" fill="#fbbf24" fill-opacity=".9" class="flicker"/>
+  <ellipse cx="773" cy="102" rx="12" ry="8" fill="#fbbf24" fill-opacity=".06" class="shimmer"/>
+  <!-- candle 2 -->
+  <rect x="118" y="108" width="10" height="18" rx="2" fill="#d4a96a" fill-opacity=".6"/>
+  <path d="M123 108 Q120 101 123 95 Q126 101 123 108" fill="#fbbf24" fill-opacity=".8" class="flicker2"/>
+  <!-- big barrel -->
+  <g transform="translate(380,62)">
+    <ellipse cx="70" cy="22" rx="70" ry="18" fill="#3d2008"/>
+    <rect x="0" y="22" width="140" height="118" fill="url(#r1bar)" rx="5"/>
+    <ellipse cx="70" cy="140" rx="70" ry="18" fill="#3d2008"/>
+    <rect x="0" y="38" width="140" height="7" rx="3" fill="#2a1505" opacity=".8"/>
+    <rect x="0" y="72" width="140" height="7" rx="3" fill="#2a1505" opacity=".8"/>
+    <rect x="0" y="106" width="140" height="7" rx="3" fill="#2a1505" opacity=".8"/>
+    <ellipse cx="70" cy="22" rx="56" ry="11" fill="url(#r1liq)" opacity=".8"/>
+    <ellipse cx="55" cy="18" rx="25" ry="5" fill="#fbbf24" fill-opacity=".12" class="shimmer"/>
+    <rect x="55" y="118" width="30" height="12" rx="5" fill="#6b5010"/>
+    <rect x="81" y="121" width="18" height="6" rx="3" fill="#78350f"/>
+    <circle cx="99" cy="130" r="4" fill="${color}" fill-opacity=".5" class="drip"/>
+    <text x="70" y="170" text-anchor="middle" fill="#92400e" font-size="13" font-weight="700" fill-opacity=".8" font-family="'Segoe UI',sans-serif">whisky del Johnny</text>
+  </g>
+  <!-- small barrel left -->
+  <g transform="translate(280,110)">
+    <ellipse cx="35" cy="12" rx="35" ry="10" fill="#2a1505"/>
+    <rect x="0" y="12" width="70" height="75" fill="#3d2008" rx="3"/>
+    <ellipse cx="35" cy="87" rx="35" ry="10" fill="#2a1505"/>
+    <rect x="0" y="25" width="70" height="5" rx="2" fill="#1a0f03" opacity=".7"/>
+    <rect x="0" y="48" width="70" height="5" rx="2" fill="#1a0f03" opacity=".7"/>
+    <rect x="0" y="70" width="70" height="5" rx="2" fill="#1a0f03" opacity=".7"/>
+  </g>
+  <!-- barrel tipped -->
+  <g transform="translate(640,130) rotate(-20)">
+    <ellipse cx="30" cy="10" rx="30" ry="9" fill="#2a1505"/>
+    <rect x="0" y="10" width="60" height="62" fill="#3d2008" rx="3"/>
+    <ellipse cx="30" cy="72" rx="30" ry="9" fill="#2a1505"/>
+    <rect x="0" y="22" width="60" height="4" rx="2" fill="#1a0f03" opacity=".7"/>
+    <rect x="0" y="42" width="60" height="4" rx="2" fill="#1a0f03" opacity=".7"/>
+    <rect x="0" y="62" width="60" height="4" rx="2" fill="#1a0f03" opacity=".7"/>
+  </g>
+  <!-- puddle -->
+  <ellipse cx="680" cy="195" rx="55" ry="12" fill="#b45309" fill-opacity=".35" class="shimmer"/>
+  <!-- dwarf -->
+  <g transform="translate(150,72)" opacity=".92">
+    <rect x="20" y="115" width="22" height="40" rx="8" fill="#0d0e1a"/>
+    <rect x="52" y="115" width="22" height="40" rx="8" fill="#0d0e1a"/>
+    <ellipse cx="47" cy="100" rx="38" ry="42" fill="#0d0e1a"/>
+    <path d="M18 75 Q47 105 76 75 Q72 130 47 135 Q22 130 18 75Z" fill="#12102a" opacity=".85"/>
+    <circle cx="47" cy="52" r="32" fill="#0d0e1a"/>
+    <ellipse cx="47" cy="60" rx="10" ry="8" fill="#0f0e1f"/>
+    <ellipse cx="34" cy="44" rx="7" ry="8" fill="${color}" fill-opacity=".95"/>
+    <ellipse cx="60" cy="44" rx="7" ry="8" fill="${color}" fill-opacity=".95"/>
+    <circle cx="34" cy="44" r="3" fill="#000"/>
+    <circle cx="60" cy="44" r="3" fill="#000"/>
+    <path d="M26 37 L42 42" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round" stroke-opacity=".6"/>
+    <path d="M52 42 L68 37" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round" stroke-opacity=".6"/>
+    <path d="M20 32 L47 -15 L74 32Z" fill="#0a0b14"/>
+    <rect x="14" y="29" width="66" height="9" rx="4" fill="#12102a"/>
+    <rect x="40" y="31" width="14" height="6" rx="2" fill="${color}" fill-opacity=".4"/>
+    <path d="M85 80 Q115 55 130 40" stroke="#0d0e1a" stroke-width="16" stroke-linecap="round" fill="none"/>
+    <ellipse cx="133" cy="36" rx="14" ry="12" fill="#0d0e1a"/>
+    <!-- speech bubble -->
+    <rect x="125" y="-20" width="80" height="36" rx="10" fill="#12102a" stroke="${color}" stroke-width="1.5" stroke-opacity=".5"/>
+    <path d="M140 16 L130 30 L153 16Z" fill="#12102a"/>
+    <text x="165" y="-6" text-anchor="middle" fill="${color}" font-size="10" font-weight="700" fill-opacity=".9" font-family="'Segoe UI',sans-serif">On és</text>
+    <text x="165" y="8" text-anchor="middle" fill="${color}" font-size="10" font-weight="700" fill-opacity=".9" font-family="'Segoe UI',sans-serif">el meu whisky?!</text>
+  </g>
+  <!-- salt bag -->
+  <g transform="translate(580,155)">
+    <path d="M0 0 Q5 -40 30 -42 Q55 -40 60 0 Q50 15 30 15 Q10 15 0 0Z" fill="#1e293b" stroke="#475569" stroke-width="1.5" stroke-opacity=".5"/>
+    <text x="30" y="-18" text-anchor="middle" fill="white" font-size="11" fill-opacity=".5" font-family="'Segoe UI',sans-serif">SAL</text>
+  </g>
+</svg>`;
 }
 
-function Room3Illustration({ color }) {
-  // Scene: dark forest corridor, injured elf Lasgole, goblins scattering the iodine mixture — NO lab technique hints
-  return (
-    <svg viewBox="0 0 900 220" style={{ width: "100%", height: "170px", display: "block" }}>
-      <defs>
-        <radialGradient id="r3bg" cx="40%" cy="30%" r="55%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.2"/>
-          <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-        </radialGradient>
-        <radialGradient id="r3moon" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#d4fae7" stopOpacity="0.15"/>
-          <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-        </radialGradient>
-      </defs>
-      <rect x="0" y="0" width="900" height="220" fill="url(#r3bg)"/>
-
-      {/* Moon */}
-      <circle cx="750" cy="50" r="42" fill="#071a10" stroke={color} strokeWidth="1" strokeOpacity="0.3"/>
-      <circle cx="738" cy="42" r="36" fill="#030e08"/>
-      <rect x="0" y="0" width="900" height="220" fill="url(#r3moon)" opacity="0.4"/>
-
-      {/* Deep forest silhouette */}
-      {[0,55,105,155,580,635,690,745,800,855].map((x,i)=>(
-        <g key={i} transform={`translate(${x},${i%2===0?0:20})`} opacity="0.85">
-          <path d={`M0 220 L0 ${100+i%3*15} L${28+i%2*8} ${55+i%3*10} L${56+i%2*8} ${100+i%3*15} L${56+i%2*8} 220Z`} fill="#040a06"/>
-          <path d={`M${8+i%2*4} 220 L${8+i%2*4} ${110+i%3*10} L${28+i%2*8} ${70+i%3*8} L${48+i%2*4} ${110+i%3*10} L${48+i%2*4} 220Z`} fill="#060e08" opacity="0.7"/>
-        </g>
-      ))}
-
-      {/* Mossy ground */}
-      <path d="M0 185 C150 172,300 192,450 180 C600 168,750 188,900 178 L900 220 L0 220Z" fill="#050f07"/>
-
-      {/* The vial/jar with mixed iodine on ground */}
-      <g transform="translate(380,130)">
-        {/* Broken bottle */}
-        <path d="M20 0 L15 60 Q15 80 35 80 Q55 80 55 60 L50 0Z" fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.6"/>
-        <path d="M25 0 L35 -15 L45 0" fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.5"/>
-        {/* Purple-brown contents spilling */}
-        <path d="M15 60 Q15 80 35 80 Q55 80 55 60 L50 40 L20 40Z" fill={color} fillOpacity="0.3"/>
-        {/* spill on ground */}
-        <motion.ellipse cx="35" cy="85" rx="40" ry="10" fill={color} fillOpacity="0.25"
-          animate={{ rx:[40,50,40], fillOpacity:[0.25,0.1,0.25] }}
-          transition={{ duration:3, repeat:Infinity }}/>
-        {/* Label */}
-        <text x="35" y="105" textAnchor="middle" fill={color} fontSize="12" fontWeight="700" fillOpacity="0.8">
-          iode + sal + sorra
-        </text>
-        {/* Crack lines */}
-        <path d="M15 50 L5 55 M50 45 L60 55" stroke={color} strokeWidth="1.5" strokeOpacity="0.4"/>
-      </g>
-
-      {/* Goblins scattering the mixture (mischief!) */}
-      {[{x:480,dir:1},{x:320,dir:-1}].map(({x,dir},gi)=>(
-        <g key={gi} transform={`translate(${x},120) scale(${dir},1)`}>
-          {/* Small goblin body */}
-          <ellipse cx="25" cy="55" rx="18" ry="22" fill="#0a1a0c"/>
-          <circle cx="25" cy="30" r="18" fill="#0a1a0c"/>
-          {/* Big ears */}
-          <path d="M8 28 L-8 18 L8 38Z" fill="#0a1a0c"/>
-          <path d="M42 28 L58 18 L42 38Z" fill="#0a1a0c"/>
-          {/* Glowing eyes */}
-          <circle cx="18" cy="26" r="6" fill={color} fillOpacity="0.9"/>
-          <circle cx="32" cy="26" r="6" fill={color} fillOpacity="0.9"/>
-          <circle cx="18" cy="26" r="2.5" fill="#000"/>
-          <circle cx="32" cy="26" r="2.5" fill="#000"/>
-          {/* Mischievous grin */}
-          <path d="M15 40 Q25 48 35 40" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeOpacity="0.4"/>
-          {/* Arm flinging powder */}
-          <path d="M43 45 Q62 30 78 22" stroke="#0a1a0c" strokeWidth="8" strokeLinecap="round" fill="none"/>
-          {/* Powder particles flying */}
-          {[0,1,2,3].map(i=>(
-            <motion.circle key={i} cx={78+i*10} cy={22-i*8} r="3" fill={color} fillOpacity="0.6"
-              animate={{ cx:[78+i*10,90+i*10,78+i*10], cy:[22-i*8,10-i*8,22-i*8], opacity:[0.6,0,0.6] }}
-              transition={{ duration:1.8, delay:i*0.3, repeat:Infinity }}/>
-          ))}
-        </g>
-      ))}
-
-      {/* Elf Lasgole — tall elegant silhouette, wounded */}
-      <g transform="translate(100,20)" opacity="0.92">
-        {/* Long slender body */}
-        <path d="M30 220 L30 150 Q30 135 50 130 Q70 125 70 140 L70 220Z" fill="#0a120b"/>
-        {/* Cape/cloak flowing */}
-        <motion.path d="M20 140 Q0 165 10 190 Q5 200 15 210 L30 200 L30 150Z" fill="#070e08"
-          animate={{ d:["M20 140 Q0 165 10 190 Q5 200 15 210 L30 200 L30 150Z","M20 140 Q-5 168 8 192 Q3 203 14 212 L30 200 L30 150Z","M20 140 Q0 165 10 190 Q5 200 15 210 L30 200 L30 150Z"] }}
-          transition={{ duration:3, repeat:Infinity }}/>
-        {/* Head */}
-        <circle cx="50" cy="98" r="30" fill="#0a120b"/>
-        {/* Long pointy ears */}
-        <path d="M22 92 L-4 72 L22 108Z" fill="#0a120b"/>
-        <path d="M78 92 L104 72 L78 108Z" fill="#0a120b"/>
-        {/* Long flowing hair */}
-        <path d="M22 92 Q5 130 10 175" stroke="#0d160e" strokeWidth="12" fill="none" strokeLinecap="round"/>
-        <path d="M78 92 Q95 130 90 175" stroke="#0d160e" strokeWidth="12" fill="none" strokeLinecap="round"/>
-        {/* Crown/circlet */}
-        <path d="M28 80 Q50 68 72 80" fill="none" stroke={color} strokeWidth="2.5" strokeOpacity="0.6"/>
-        {[28,40,50,60,72].map((x,i)=>(
-          <circle key={i} cx={x} cy={i===2?68:75-(i===1||i===3?4:0)} r="2.5" fill={color} fillOpacity="0.5"/>
-        ))}
-        {/* Eyes — glowing emerald */}
-        <ellipse cx="40" cy="96" rx="7" ry="9" fill={color} fillOpacity="0.9"/>
-        <ellipse cx="60" cy="96" rx="7" ry="9" fill={color} fillOpacity="0.9"/>
-        <ellipse cx="40" cy="96" rx="3" ry="4" fill="#000"/>
-        <ellipse cx="60" cy="96" rx="3" ry="4" fill="#000"/>
-        {/* Mouth — worried */}
-        <path d="M38 112 Q50 108 62 112" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeOpacity="0.35"/>
-        {/* Wounded hand with blood */}
-        <path d="M70 145 Q100 135 120 125" stroke="#0a120b" strokeWidth="14" strokeLinecap="round" fill="none"/>
-        {/* Bandage/wound */}
-        <circle cx="122" cy="123" r="12" fill="none" stroke="#f1f5f9" strokeWidth="2" strokeOpacity="0.4" strokeDasharray="4,3"/>
-        <motion.path d="M118 130 Q115 140 118 146 Q122 140 118 130" fill="#ef4444" fillOpacity="0.75"
-          animate={{ opacity:[0.75,0.3,0.75] }} transition={{ duration:2, repeat:Infinity }}/>
-        {/* Bow */}
-        <path d="M70 160 Q30 140 30 110" fill="none" stroke="#5c3a1e" strokeWidth="3.5" strokeOpacity="0.7"/>
-        <path d="M70 160 Q110 140 105 110" fill="none" stroke="#5c3a1e" strokeWidth="3.5" strokeOpacity="0.7"/>
-        <line x1="30" y1="110" x2="105" y2="110" stroke="#94a3b8" strokeWidth="1.5" strokeOpacity="0.5"/>
-        {/* Arrow aimed */}
-        <motion.g animate={{ x:[0,5,0] }} transition={{ duration:1.5, repeat:Infinity }}>
-          <line x1="105" y1="110" x2="160" y2="100" stroke="#94a3b8" strokeWidth="2" strokeOpacity="0.6"/>
-          <polygon points="160,96 172,100 160,104" fill="#94a3b8" fillOpacity="0.7"/>
-        </motion.g>
-      </g>
-
-      {/* Fireflies in forest */}
-      {[650,700,750,800,820,860].map((x,i)=>(
-        <motion.circle key={i} cx={x} cy={140+(i%4)*12}  r="2.5" fill={color} fillOpacity="0.5"
-          animate={{ opacity:[0.5,0.05,0.5], cy:[140+(i%4)*12, 130+(i%4)*12, 140+(i%4)*12] }}
-          transition={{ duration:2+i*0.5, repeat:Infinity, delay:i*0.4 }}/>
-      ))}
-    </svg>
-  );
+function svgRoom2(color) {
+  return `<svg viewBox="0 0 900 220" style="width:100%;height:170px;display:block;">
+  <defs>
+    <radialGradient id="r2bg" cx="65%" cy="35%" r="55%"><stop offset="0%" stop-color="${color}" stop-opacity=".16"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="220" fill="url(#r2bg)"/>
+  <!-- stars -->
+  <circle cx="50"  cy="12" r="1.5" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="130" cy="25" r="1"   fill="#e2e8f0" opacity=".13"/>
+  <circle cx="220" cy="10" r="1.5" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="310" cy="22" r="1"   fill="#e2e8f0" opacity=".13" class="pulse"/>
+  <circle cx="400" cy="14" r="1"   fill="#e2e8f0" opacity=".15"/>
+  <circle cx="490" cy="28" r="1.5" fill="#e2e8f0" opacity=".13"/>
+  <circle cx="580" cy="8"  r="1"   fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="670" cy="20" r="1.5" fill="#e2e8f0" opacity=".13"/>
+  <circle cx="760" cy="12" r="1"   fill="#e2e8f0" opacity=".15"/>
+  <circle cx="850" cy="26" r="1.5" fill="#e2e8f0" opacity=".13"/>
+  <!-- ceiling -->
+  <rect x="0" y="0" width="900" height="90" fill="#07080e"/>
+  <rect x="0" y="88" width="900" height="4" fill="#0d0e1a"/>
+  <!-- chains -->
+  <ellipse cx="120" cy="10"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="120" cy="28"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="120" cy="46"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="120" cy="64"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="200" cy="10"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="200" cy="28"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <ellipse cx="200" cy="46"  rx="4" ry="6" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity=".5"/>
+  <!-- torch -->
+  <rect x="348" y="55" width="12" height="30" rx="3" fill="#44240a" fill-opacity=".8"/>
+  <path d="M354 55 Q350 43 354 33 Q358 43 354 55" fill="#f97316" fill-opacity=".9" class="flicker"/>
+  <ellipse cx="354" cy="44" rx="14" ry="10" fill="#f97316" fill-opacity=".06" class="shimmer"/>
+  <rect x="558" y="55" width="12" height="30" rx="3" fill="#44240a" fill-opacity=".8"/>
+  <path d="M564 55 Q560 43 564 33 Q568 43 564 55" fill="#f97316" fill-opacity=".8" class="flicker2"/>
+  <!-- floor -->
+  <rect x="0" y="155" width="900" height="65" fill="#1c1107"/>
+  <!-- bed -->
+  <g transform="translate(560,110)">
+    <rect x="0" y="0" width="310" height="50" rx="8" fill="#1c0f06" stroke="#2d1a0a" stroke-width="2"/>
+    <rect x="20"  y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="60"  y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="100" y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="140" y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="180" y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="220" y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="260" y="5" width="25" height="38" rx="4" fill="#251208" opacity=".8"/>
+    <rect x="0" y="48" width="310" height="90" rx="4" fill="#180e05"/>
+    <rect x="5" y="48" width="300" height="80" rx="6" fill="#1e1410" stroke="#2d2010" stroke-width="1"/>
+    <rect x="15" y="52" width="80" height="45" rx="10" fill="#2a1e12" stroke="#3d2e1a" stroke-width="1"/>
+  </g>
+  <!-- sand pile -->
+  <g transform="translate(250,125)">
+    <path d="M0 90 Q80 30 200 45 Q310 28 370 90Z" fill="#92400e" fill-opacity=".7"/>
+    <path d="M20 90 Q90 45 180 52 Q280 40 350 90Z" fill="#b45309" fill-opacity=".5"/>
+    <ellipse cx="30"  cy="75" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="75"  cy="67" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="120" cy="72" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="165" cy="64" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="220" cy="70" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="280" cy="66" rx="16" ry="6" fill="white" fill-opacity=".2"/>
+    <ellipse cx="50"  cy="78" rx="18" ry="10" fill="#334155" stroke="#475569" stroke-width="1" stroke-opacity=".5"/>
+    <ellipse cx="110" cy="80" rx="22" ry="11" fill="#334155" stroke="#475569" stroke-width="1" stroke-opacity=".5"/>
+    <ellipse cx="170" cy="76" rx="18" ry="10" fill="#334155" stroke="#475569" stroke-width="1" stroke-opacity=".5"/>
+    <ellipse cx="240" cy="80" rx="20" ry="10" fill="#334155" stroke="#475569" stroke-width="1" stroke-opacity=".5"/>
+    <ellipse cx="305" cy="76" rx="16" ry="9"  fill="#334155" stroke="#475569" stroke-width="1" stroke-opacity=".5"/>
+    <text x="185" y="108" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="700" fill-opacity=".8" font-family="'Segoe UI',sans-serif">Sorra + sucre + pedres</text>
+  </g>
+  <!-- giant -->
+  <g transform="translate(30,10)" opacity=".92">
+    <rect x="30" y="160" width="36" height="55" rx="12" fill="#0d0e1a"/>
+    <rect x="80" y="160" width="36" height="55" rx="12" fill="#0d0e1a"/>
+    <ellipse cx="73" cy="140" rx="58" ry="70" fill="#0d0e1a"/>
+    <circle cx="73" cy="60" r="52" fill="#0d0e1a"/>
+    <!-- wild hair -->
+    <path d="M33 14 Q25 -5 28 -15" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair1"/>
+    <path d="M47 10 Q42 -8 45 -18" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair2"/>
+    <path d="M60 8 Q58 -10 61 -20" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair3"/>
+    <path d="M73 7 Q73 -12 73 -22" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair1"/>
+    <path d="M86 8 Q88 -10 85 -20" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair2"/>
+    <path d="M99 10 Q104 -8 101 -18" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair3"/>
+    <path d="M113 14 Q121 -5 118 -15" stroke="#0f0e1f" stroke-width="8" fill="none" stroke-linecap="round" class="hair1"/>
+    <!-- angry eyes -->
+    <path d="M44 48 Q58 40 72 48" stroke="${color}" stroke-width="3.5" fill="none"/>
+    <path d="M74 48 Q88 40 102 48" stroke="${color}" stroke-width="3.5" fill="none"/>
+    <ellipse cx="58" cy="56" rx="9" ry="10" fill="${color}" fill-opacity=".85"/>
+    <ellipse cx="88" cy="56" rx="9" ry="10" fill="${color}" fill-opacity=".85"/>
+    <circle cx="58" cy="56" r="4" fill="#000"/>
+    <circle cx="88" cy="56" r="4" fill="#000"/>
+    <ellipse cx="73" cy="72" rx="12" ry="9" fill="#0f0e1f" opacity=".8"/>
+    <path d="M52 88 Q73 80 94 88" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-opacity=".3"/>
+    <path d="M131 110 Q175 130 230 150" stroke="#0d0e1a" stroke-width="22" stroke-linecap="round" fill="none"/>
+    <ellipse cx="235" cy="153" rx="18" ry="15" fill="#0d0e1a"/>
+    <!-- speech bubble -->
+    <rect x="135" y="-30" width="110" height="42" rx="12" fill="#0f0e1f" stroke="${color}" stroke-width="1.5" stroke-opacity=".5"/>
+    <path d="M150 12 L140 28 L168 12Z" fill="#0f0e1f"/>
+    <text x="190" y="-14" text-anchor="middle" fill="${color}" font-size="11" font-weight="700" font-family="'Segoe UI',sans-serif">M'han embruixat</text>
+    <text x="190" y="0"  text-anchor="middle" fill="${color}" font-size="11" font-weight="700" font-family="'Segoe UI',sans-serif">la sorra!!!</text>
+  </g>
+</svg>`;
 }
 
-function Room4Illustration({ color }) {
-  // Scene: dark lake Isiyava, three goblins each holding a key, ominous door — NO separation hints
-  const goblinColors = ["#60A5FA","#FCD34D","#86EFAC"];
-  const goblinNames = ["Isi","Ya","Va"];
-  const goblinItems = ["🧂","🍬","🟡"]; // just their demand items, not the solution
-  return (
-    <svg viewBox="0 0 900 220" style={{ width: "100%", height: "170px", display: "block" }}>
-      <defs>
-        <radialGradient id="r4bg" cx="50%" cy="25%" r="60%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.18"/>
-          <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-        </radialGradient>
-        <radialGradient id="r4lake" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#12092a" stopOpacity="0.95"/>
-          <stop offset="100%" stopColor="#050714" stopOpacity="0.98"/>
-        </radialGradient>
-        <radialGradient id="r4moon" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#1a0a3c" stopOpacity="0.8"/>
-          <stop offset="100%" stopColor="#050714" stopOpacity="0"/>
-        </radialGradient>
-      </defs>
-      <rect x="0" y="0" width="900" height="220" fill="url(#r4bg)"/>
-
-      {/* Moon */}
-      <circle cx="450" cy="50" r="50" fill="#100822" stroke={color} strokeWidth="1" strokeOpacity="0.25"/>
-      <circle cx="438" cy="42" r="44" fill="#050714"/>
-
-      {/* Stars — animated */}
-      {[40,100,170,240,320,390,460,530,610,680,760,840].map((x,i)=>(
-        <motion.circle key={i} cx={x} cy={8+(i%6)*16} r={i%4===0?2:1.2} fill="#e2e8f0"
-          animate={{ opacity:[0.1,0.45,0.1] }} transition={{ duration:2.5+i*0.3,repeat:Infinity,delay:i*0.25 }}/>
-      ))}
-
-      {/* Misty ground / shore */}
-      <path d="M0 145 C120 130,280 152,450 140 C620 128,780 150,900 138 L900 220 L0 220Z" fill="#080910" opacity="0.9"/>
-
-      {/* Dark lake Isiyava — animated surface */}
-      <motion.path d="M50 165 C180 148,360 170,540 158 C700 146,820 170,900 160 L900 220 L50 220Z"
-        fill="url(#r4lake)"
-        animate={{ d:["M50 165 C180 148,360 170,540 158 C700 146,820 170,900 160 L900 220 L50 220Z","M50 167 C180 152,360 168,540 162 C700 150,820 166,900 163 L900 220 L50 220Z","M50 165 C180 148,360 170,540 158 C700 146,820 170,900 160 L900 220 L50 220Z"] }}
-        transition={{ duration:5, repeat:Infinity }}/>
-
-      {/* Lake reflections of goblin eyes */}
-      {goblinColors.map((c,i)=>(
-        <motion.ellipse key={i} cx={170+i*200} cy={190} rx={18} ry={5} fill={c} fillOpacity="0.12"
-          animate={{ opacity:[0.12,0.04,0.12],rx:[18,28,18] }}
-          transition={{ duration:4+i, repeat:Infinity }}/>
-      ))}
-
-      {/* Three goblins rising from / standing at lake edge */}
-      {goblinColors.map((c,i)=>(
-        <g key={i} transform={`translate(${120+i*220},45)`}>
-          {/* Mist/fog swirling at feet */}
-          <motion.ellipse cx="32" cy="115" rx="40" ry="12" fill={c} fillOpacity="0.06"
-            animate={{ rx:[40,55,40], fillOpacity:[0.06,0.02,0.06] }}
-            transition={{ duration:3+i, repeat:Infinity }}/>
-          {/* Body */}
-          <ellipse cx="32" cy="90" rx="22" ry="32" fill="#0a0a18"/>
-          {/* Robe/cloak */}
-          <path d={`M10 90 Q32 115 54 90 L54 120 Q32 145 10 120Z`} fill="#08080f" opacity="0.9"/>
-          {/* Head */}
-          <circle cx="32" cy="50" r="26" fill="#0a0a18"/>
-          {/* Big goblin ears */}
-          <path d="M8 46 L-10 32 L8 60Z" fill="#0a0a18"/>
-          <path d="M56 46 L74 32 L56 60Z" fill="#0a0a18"/>
-          {/* Hat (pointed) */}
-          <path d="M10 34 L32 -8 L54 34Z" fill="#080810"/>
-          <rect x="5" y="31" width="54" height="8" rx="3" fill="#0d0d1c"/>
-          {/* Hat band */}
-          <rect x="7" y="33" width="50" height="4" rx="2" fill={c} fillOpacity="0.4"/>
-          {/* Glowing eyes */}
-          <circle cx="22" cy="48" r="8" fill={c} fillOpacity="0.9"/>
-          <circle cx="42" cy="48" r="8" fill={c} fillOpacity="0.9"/>
-          <circle cx="22" cy="48" r="3.5" fill="#000"/>
-          <circle cx="42" cy="48" r="3.5" fill="#000"/>
-          {/* Sly smile */}
-          <path d="M20 64 Q32 72 44 64" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeOpacity="0.3"/>
-          {[24,32,40].map((x,j)=>(<line key={j} x1={x} y1="64" x2={x} y2="70" stroke="#e2e8f0" strokeWidth="1" strokeOpacity="0.25"/>))}
-          {/* Key floating above hand */}
-          <motion.g animate={{ y:[0,-7,0], rotate:[0,6,0] }} transition={{ duration:2+i*0.5, repeat:Infinity }}>
-            <path d="M32 -18 Q20 -18 20 -26 Q20 -34 32 -34 Q44 -34 44 -26 Q44 -18 32 -18Z" fill="none" stroke={c} strokeWidth="2.5" strokeOpacity="0.85"/>
-            <rect x="38" y="-20" width="22" height="6" rx="2" fill={c} fillOpacity="0.75"/>
-            <rect x="54" y="-20" width="4" height="12" rx="1" fill={c} fillOpacity="0.75"/>
-            <rect x="47" y="-14" width="4" height="8" rx="1" fill={c} fillOpacity="0.75"/>
-          </motion.g>
-          {/* Name + demand label */}
-          <text x="32" y="155" textAnchor="middle" fill={c} fontSize="13" fontWeight="800" fillOpacity="0.95">{goblinNames[i]}</text>
-          <text x="32" y="170" textAnchor="middle" fill={c} fontSize="16" fillOpacity="0.8">{goblinItems[i]}</text>
-        </g>
-      ))}
-
-      {/* Dramatic door — right side, massive */}
-      <g transform="translate(790,25)" opacity="0.9">
-        {/* Door arch */}
-        <path d="M0 195 L0 60 Q0 10 50 5 Q100 10 100 60 L100 195Z" fill="#06060f" stroke="#ffffff" strokeWidth="1.5" strokeOpacity="0.12"/>
-        {/* Door panels */}
-        <rect x="8" y="70" width="38" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" strokeWidth="0.8" strokeOpacity="0.1"/>
-        <rect x="54" y="70" width="38" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" strokeWidth="0.8" strokeOpacity="0.1"/>
-        <rect x="8" y="133" width="84" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" strokeWidth="0.8" strokeOpacity="0.1"/>
-        {/* Three keyholes — one for each goblin */}
-        {goblinColors.map((c,i)=>(
-          <g key={i} transform={`translate(${20+i*28},${85+i*0})`}>
-            <circle cx="9" cy="10" r="7" fill="none" stroke={c} strokeWidth="1.8" strokeOpacity="0.7"/>
-            <rect x="5" y="17" width="8" height="9" rx="1.5" fill="none" stroke={c} strokeWidth="1.8" strokeOpacity="0.7"/>
-            {/* Glow */}
-            <motion.circle cx="9" cy="10" r="5" fill={c} fillOpacity="0.12"
-              animate={{ r:[5,9,5], fillOpacity:[0.12,0.03,0.12] }}
-              transition={{ duration:2+i*0.6, repeat:Infinity }}/>
-          </g>
-        ))}
-        {/* Door handle */}
-        <circle cx="15" cy="148" r="6" fill={color} fillOpacity="0.4"/>
-        {/* Arch glow */}
-        <motion.path d="M2 60 Q50 8 98 60" fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.2"
-          animate={{ strokeOpacity:[0.2,0.5,0.2] }} transition={{ duration:3, repeat:Infinity }}/>
-      </g>
-
-      {/* "Llac Isiyava" label */}
-      <text x="450" y="215" textAnchor="middle" fill={color} fontSize="12" fontWeight="600" fillOpacity="0.5" letterSpacing="3">
-        LLAC ISIYAVA
-      </text>
-    </svg>
-  );
+function svgRoom3(color) {
+  return `<svg viewBox="0 0 900 220" style="width:100%;height:170px;display:block;">
+  <defs>
+    <radialGradient id="r3bg" cx="40%" cy="30%" r="55%"><stop offset="0%" stop-color="${color}" stop-opacity=".2"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="220" fill="url(#r3bg)"/>
+  <!-- moon -->
+  <circle cx="750" cy="50" r="42" fill="#071a10" stroke="${color}" stroke-width="1" stroke-opacity=".3"/>
+  <circle cx="738" cy="42" r="36" fill="#030e08"/>
+  <!-- trees -->
+  <path d="M0 220 L0 100 L28 55 L56 100 L56 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M55 220 L55 110 L83 65 L111 110 L111 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M105 220 L105 120 L133 75 L161 120 L161 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M155 220 L155 115 L183 70 L211 115 L211 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M580 220 L580 100 L608 55 L636 100 L636 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M635 220 L635 110 L663 65 L691 110 L691 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M690 220 L690 120 L718 75 L746 120 L746 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M745 220 L745 115 L773 70 L801 115 L801 220Z" fill="#040a06" opacity=".85"/>
+  <path d="M800 220 L800 105 L828 58 L856 105 L856 220Z" fill="#040a06" opacity=".85"/>
+  <!-- ground -->
+  <path d="M0 185 C150 172,300 192,450 180 C600 168,750 188,900 178 L900 220 L0 220Z" fill="#050f07"/>
+  <!-- broken vial -->
+  <g transform="translate(380,130)">
+    <path d="M20 0 L15 60 Q15 80 35 80 Q55 80 55 60 L50 0Z" fill="none" stroke="${color}" stroke-width="2" stroke-opacity=".6"/>
+    <path d="M25 0 L35 -15 L45 0" fill="none" stroke="${color}" stroke-width="2" stroke-opacity=".5"/>
+    <path d="M15 60 Q15 80 35 80 Q55 80 55 60 L50 40 L20 40Z" fill="${color}" fill-opacity=".3"/>
+    <ellipse cx="35" cy="85" rx="40" ry="10" fill="${color}" fill-opacity=".25" class="shimmer"/>
+    <text x="35" y="105" text-anchor="middle" fill="${color}" font-size="12" font-weight="700" fill-opacity=".8" font-family="'Segoe UI',sans-serif">iode + sal + sorra</text>
+    <path d="M15 50 L5 55" stroke="${color}" stroke-width="1.5" stroke-opacity=".4"/>
+    <path d="M50 45 L60 55" stroke="${color}" stroke-width="1.5" stroke-opacity=".4"/>
+  </g>
+  <!-- goblin 1 (scattering) -->
+  <g transform="translate(480,120)">
+    <ellipse cx="25" cy="55" rx="18" ry="22" fill="#0a1a0c"/>
+    <circle  cx="25" cy="30" r="18" fill="#0a1a0c"/>
+    <path d="M8 28 L-8 18 L8 38Z" fill="#0a1a0c"/>
+    <path d="M42 28 L58 18 L42 38Z" fill="#0a1a0c"/>
+    <circle cx="18" cy="26" r="6" fill="${color}" fill-opacity=".9"/>
+    <circle cx="32" cy="26" r="6" fill="${color}" fill-opacity=".9"/>
+    <circle cx="18" cy="26" r="2.5" fill="#000"/>
+    <circle cx="32" cy="26" r="2.5" fill="#000"/>
+    <path d="M15 40 Q25 48 35 40" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-opacity=".4"/>
+    <path d="M43 45 Q62 30 78 22" stroke="#0a1a0c" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <circle cx="82" cy="15" r="3" fill="${color}" fill-opacity=".6" class="float"/>
+    <circle cx="92" cy="7"  r="3" fill="${color}" fill-opacity=".5" class="float2"/>
+    <circle cx="100" cy="18" r="3" fill="${color}" fill-opacity=".6" class="float3"/>
+  </g>
+  <!-- goblin 2 (mirror) -->
+  <g transform="translate(320,120) scale(-1,1) translate(-50,0)">
+    <ellipse cx="25" cy="55" rx="18" ry="22" fill="#0a1a0c"/>
+    <circle  cx="25" cy="30" r="18" fill="#0a1a0c"/>
+    <path d="M8 28 L-8 18 L8 38Z" fill="#0a1a0c"/>
+    <path d="M42 28 L58 18 L42 38Z" fill="#0a1a0c"/>
+    <circle cx="18" cy="26" r="6" fill="${color}" fill-opacity=".9"/>
+    <circle cx="32" cy="26" r="6" fill="${color}" fill-opacity=".9"/>
+    <circle cx="18" cy="26" r="2.5" fill="#000"/>
+    <circle cx="32" cy="26" r="2.5" fill="#000"/>
+    <path d="M43 45 Q62 30 78 22" stroke="#0a1a0c" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <circle cx="82" cy="15" r="3" fill="${color}" fill-opacity=".6" class="float2"/>
+    <circle cx="92" cy="7"  r="3" fill="${color}" fill-opacity=".5" class="float3"/>
+  </g>
+  <!-- elf Lasgole -->
+  <g transform="translate(100,20)" opacity=".92">
+    <path d="M30 220 L30 150 Q30 135 50 130 Q70 125 70 140 L70 220Z" fill="#0a120b"/>
+    <circle cx="50" cy="98" r="30" fill="#0a120b"/>
+    <path d="M22 92 L-4 72 L22 108Z" fill="#0a120b"/>
+    <path d="M78 92 L104 72 L78 108Z" fill="#0a120b"/>
+    <path d="M22 92 Q5 130 10 175"  stroke="#0d160e" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M78 92 Q95 130 90 175" stroke="#0d160e" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M28 80 Q50 68 72 80" fill="none" stroke="${color}" stroke-width="2.5" stroke-opacity=".6"/>
+    <circle cx="28" cy="80" r="2.5" fill="${color}" fill-opacity=".5"/>
+    <circle cx="40" cy="74" r="2.5" fill="${color}" fill-opacity=".5"/>
+    <circle cx="50" cy="70" r="2.5" fill="${color}" fill-opacity=".5"/>
+    <circle cx="60" cy="74" r="2.5" fill="${color}" fill-opacity=".5"/>
+    <circle cx="72" cy="80" r="2.5" fill="${color}" fill-opacity=".5"/>
+    <ellipse cx="40" cy="96" rx="7" ry="9" fill="${color}" fill-opacity=".9"/>
+    <ellipse cx="60" cy="96" rx="7" ry="9" fill="${color}" fill-opacity=".9"/>
+    <ellipse cx="40" cy="96" rx="3" ry="4" fill="#000"/>
+    <ellipse cx="60" cy="96" rx="3" ry="4" fill="#000"/>
+    <path d="M38 112 Q50 108 62 112" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-opacity=".35"/>
+    <path d="M70 145 Q100 135 120 125" stroke="#0a120b" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <circle cx="122" cy="123" r="12" fill="none" stroke="#f1f5f9" stroke-width="2" stroke-opacity=".4" stroke-dasharray="4,3"/>
+    <path d="M118 130 Q115 140 118 146 Q122 140 118 130" fill="#ef4444" fill-opacity=".75" class="pulse"/>
+    <path d="M70 160 Q30 140 30 110"  fill="none" stroke="#5c3a1e" stroke-width="3.5" stroke-opacity=".7"/>
+    <path d="M70 160 Q110 140 105 110" fill="none" stroke="#5c3a1e" stroke-width="3.5" stroke-opacity=".7"/>
+    <line x1="30" y1="110" x2="105" y2="110" stroke="#94a3b8" stroke-width="1.5" stroke-opacity=".5"/>
+    <g class="float">
+      <line x1="105" y1="110" x2="160" y2="100" stroke="#94a3b8" stroke-width="2" stroke-opacity=".6"/>
+      <polygon points="160,96 172,100 160,104" fill="#94a3b8" fill-opacity=".7"/>
+    </g>
+  </g>
+  <!-- fireflies -->
+  <circle cx="650" cy="140" r="2.5" fill="${color}" fill-opacity=".5" class="blink"/>
+  <circle cx="700" cy="152" r="2.5" fill="${color}" fill-opacity=".5" class="blink2"/>
+  <circle cx="750" cy="142" r="2.5" fill="${color}" fill-opacity=".5" class="blink3"/>
+  <circle cx="800" cy="155" r="2.5" fill="${color}" fill-opacity=".5" class="blink"/>
+  <circle cx="820" cy="140" r="2.5" fill="${color}" fill-opacity=".5" class="blink2"/>
+</svg>`;
 }
 
-const ILLUSTRATIONS = {
-  1: Room1Illustration,
-  2: Room2Illustration,
-  3: Room3Illustration,
-  4: Room4Illustration,
-};
+function svgRoom4(color) {
+  const gc = ['#60A5FA','#FCD34D','#86EFAC'];
+  const gn = ['Isi','Ya','Va'];
+  const gi = ['🧂','🍬','🟡'];
+  let goblins = '';
+  for(let i=0;i<3;i++){
+    const x = 120 + i*220;
+    goblins += `<g transform="translate(${x},45)">
+      <ellipse cx="32" cy="115" rx="40" ry="12" fill="${gc[i]}" fill-opacity=".06" class="shimmer"/>
+      <ellipse cx="32" cy="90" rx="22" ry="32" fill="#0a0a18"/>
+      <path d="M10 90 Q32 115 54 90 L54 120 Q32 145 10 120Z" fill="#08080f" opacity=".9"/>
+      <circle cx="32" cy="50" r="26" fill="#0a0a18"/>
+      <path d="M8 46 L-10 32 L8 60Z" fill="#0a0a18"/>
+      <path d="M56 46 L74 32 L56 60Z" fill="#0a0a18"/>
+      <path d="M10 34 L32 -8 L54 34Z" fill="#080810"/>
+      <rect x="5" y="31" width="54" height="8" rx="3" fill="#0d0d1c"/>
+      <rect x="7" y="33" width="50" height="4" rx="2" fill="${gc[i]}" fill-opacity=".4"/>
+      <circle cx="22" cy="48" r="8" fill="${gc[i]}" fill-opacity=".9"/>
+      <circle cx="42" cy="48" r="8" fill="${gc[i]}" fill-opacity=".9"/>
+      <circle cx="22" cy="48" r="3.5" fill="#000"/>
+      <circle cx="42" cy="48" r="3.5" fill="#000"/>
+      <path d="M20 64 Q32 72 44 64" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-opacity=".3"/>
+      <g class="float${i===0?'':i===1?'2':'3'}">
+        <path d="M32 -18 Q20 -18 20 -26 Q20 -34 32 -34 Q44 -34 44 -26 Q44 -18 32 -18Z" fill="none" stroke="${gc[i]}" stroke-width="2.5" stroke-opacity=".85"/>
+        <rect x="38" y="-20" width="22" height="6" rx="2" fill="${gc[i]}" fill-opacity=".75"/>
+        <rect x="54" y="-20" width="4" height="12" rx="1" fill="${gc[i]}" fill-opacity=".75"/>
+        <rect x="47" y="-14" width="4" height="8" rx="1" fill="${gc[i]}" fill-opacity=".75"/>
+      </g>
+      <text x="32" y="155" text-anchor="middle" fill="${gc[i]}" font-size="13" font-weight="800" fill-opacity=".95" font-family="'Segoe UI',sans-serif">${gn[i]}</text>
+      <text x="32" y="172" text-anchor="middle" font-size="16" font-family="'Segoe UI',sans-serif">${gi[i]}</text>
+    </g>`;
+  }
+  return `<svg viewBox="0 0 900 220" style="width:100%;height:170px;display:block;">
+  <defs>
+    <radialGradient id="r4bg" cx="50%" cy="25%" r="60%"><stop offset="0%" stop-color="${color}" stop-opacity=".18"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="220" fill="url(#r4bg)"/>
+  <!-- moon -->
+  <circle cx="450" cy="50" r="50" fill="#100822" stroke="${color}" stroke-width="1" stroke-opacity=".25"/>
+  <circle cx="438" cy="42" r="44" fill="#050714"/>
+  <!-- stars -->
+  <circle cx="40"  cy="8"  r="2"   fill="#e2e8f0" fill-opacity=".2" class="pulse"/>
+  <circle cx="100" cy="20" r="1.2" fill="#e2e8f0" fill-opacity=".2"/>
+  <circle cx="170" cy="10" r="1.5" fill="#e2e8f0" fill-opacity=".2" class="pulse"/>
+  <circle cx="240" cy="24" r="1.2" fill="#e2e8f0" fill-opacity=".2"/>
+  <circle cx="320" cy="8"  r="1.5" fill="#e2e8f0" fill-opacity=".2" class="pulse"/>
+  <circle cx="530" cy="12" r="1.5" fill="#e2e8f0" fill-opacity=".2"/>
+  <circle cx="610" cy="26" r="1.2" fill="#e2e8f0" fill-opacity=".2" class="pulse"/>
+  <circle cx="680" cy="8"  r="1.5" fill="#e2e8f0" fill-opacity=".2"/>
+  <circle cx="760" cy="20" r="1.2" fill="#e2e8f0" fill-opacity=".2" class="pulse"/>
+  <circle cx="840" cy="10" r="1.5" fill="#e2e8f0" fill-opacity=".2"/>
+  <!-- shore -->
+  <path d="M0 145 C120 130,280 152,450 140 C620 128,780 150,900 138 L900 220 L0 220Z" fill="#080910" opacity=".9"/>
+  <!-- lake -->
+  <path d="M50 165 C180 148,360 170,540 158 C700 146,820 170,900 160 L900 220 L50 220Z" fill="#12092a" fill-opacity=".95"/>
+  <!-- goblin eye reflections -->
+  <ellipse cx="200" cy="190" rx="18" ry="5" fill="#60A5FA" fill-opacity=".12" class="shimmer"/>
+  <ellipse cx="400" cy="190" rx="18" ry="5" fill="#FCD34D" fill-opacity=".12" class="shimmer"/>
+  <ellipse cx="600" cy="190" rx="18" ry="5" fill="#86EFAC" fill-opacity=".12" class="shimmer"/>
+  <!-- three goblins -->
+  ${goblins}
+  <!-- door -->
+  <g transform="translate(790,25)" opacity=".9">
+    <path d="M0 195 L0 60 Q0 10 50 5 Q100 10 100 60 L100 195Z" fill="#06060f" stroke="#ffffff" stroke-width="1.5" stroke-opacity=".12"/>
+    <rect x="8"  y="70" width="38" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" stroke-width=".8" stroke-opacity=".1"/>
+    <rect x="54" y="70" width="38" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" stroke-width=".8" stroke-opacity=".1"/>
+    <rect x="8"  y="133" width="84" height="55" rx="3" fill="#0a0a1c" stroke="#ffffff" stroke-width=".8" stroke-opacity=".1"/>
+    <circle cx="29" cy="88" r="7" fill="none" stroke="#60A5FA" stroke-width="1.8" stroke-opacity=".7"/>
+    <rect x="25" y="95" width="8" height="9" rx="1.5" fill="none" stroke="#60A5FA" stroke-width="1.8" stroke-opacity=".7"/>
+    <circle cx="50" cy="95" r="7" fill="none" stroke="#FCD34D" stroke-width="1.8" stroke-opacity=".7"/>
+    <rect x="46" y="102" width="8" height="9" rx="1.5" fill="none" stroke="#FCD34D" stroke-width="1.8" stroke-opacity=".7"/>
+    <circle cx="71" cy="88" r="7" fill="none" stroke="#86EFAC" stroke-width="1.8" stroke-opacity=".7"/>
+    <rect x="67" y="95" width="8" height="9" rx="1.5" fill="none" stroke="#86EFAC" stroke-width="1.8" stroke-opacity=".7"/>
+    <circle cx="15" cy="148" r="6" fill="${color}" fill-opacity=".4"/>
+    <path d="M2 60 Q50 8 98 60" fill="none" stroke="${color}" stroke-width="2" stroke-opacity=".2" class="pulse"/>
+  </g>
+  <text x="450" y="215" text-anchor="middle" fill="${color}" font-size="12" font-weight="600" fill-opacity=".5" letter-spacing="3" font-family="'Segoe UI',sans-serif">LLAC ISIYAVA</text>
+</svg>`;
+}
 
-// ─── CODE GATE ───────────────────────────────────────────────────────────────
-function CodeGate({ roomId, onUnlock, isUnlocked, color }) {
-  const [code, setCode] = useState("");
-  const [status, setStatus] = useState(null);
-  const [shake, setShake] = useState(false);
+const SVGS = [null, svgRoom1, svgRoom2, svgRoom3, svgRoom4];
 
-  const tryUnlock = useCallback(() => {
-    const c = code.replace(/\D/g, "");
-    if (c.length !== 5) { setStatus("warn"); setShake(true); setTimeout(()=>setShake(false),500); return; }
-    if (c === CODES[roomId]) { setStatus("ok"); setTimeout(onUnlock, 600); }
-    else { setStatus("err"); setShake(true); setTimeout(()=>setShake(false),500); }
-  }, [code, roomId, onUnlock]);
+// ═══════════════════════════════════════════════════════
+// MAP SVG
+// ═══════════════════════════════════════════════════════
+function renderMapSVG() {
+  const u = state.unlocked;
+  return `<svg viewBox="0 0 900 340" style="width:100%;display:block;">
+  <defs>
+    <radialGradient id="mglow" cx="50%" cy="40%" r="55%"><stop offset="0%" stop-color="#7C3AED" stop-opacity=".12"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="340" fill="url(#mglow)"/>
+  <circle cx="40"  cy="8"  r="1.8" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="90"  cy="20" r="1.2" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="160" cy="9"  r="1.5" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="230" cy="22" r="1.2" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="300" cy="7"  r="1.5" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="370" cy="18" r="1.2" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="440" cy="8"  r="1.5" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="510" cy="22" r="1.2" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="580" cy="10" r="1.5" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="650" cy="20" r="1.2" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="720" cy="8"  r="1.5" fill="#e2e8f0" opacity=".15" class="pulse"/>
+  <circle cx="790" cy="18" r="1.2" fill="#e2e8f0" opacity=".15"/>
+  <circle cx="860" cy="9"  r="1.5" fill="#e2e8f0" opacity=".15"/>
+  <!-- outer walls -->
+  <rect x="40" y="50" width="820" height="240" rx="8" fill="none" stroke="#334155" stroke-width="2" stroke-opacity=".5" stroke-dasharray="8,6"/>
+  <!-- Room 1 -->
+  <rect x="60" y="90" width="190" height="160" rx="6" fill="#7C3AED18" stroke="#7C3AED" stroke-width="2" stroke-opacity="${u[1]?.0.9:0.4}"/>
+  <rect x="60" y="90" width="190" height="35" rx="6" fill="#7C3AED33"/>
+  <text x="155" y="113" text-anchor="middle" fill="#A78BFA" font-size="12" font-weight="800" font-family="'Segoe UI',sans-serif">Habitació 1</text>
+  <text x="155" y="128" text-anchor="middle" fill="#A78BFA" font-size="9" fill-opacity=".7" font-family="'Segoe UI',sans-serif">Celler del Nan Johnny</text>
+  <g transform="translate(90,155)"><ellipse cx="12" cy="5" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/><rect x="0" y="5" width="24" height="30" rx="2" fill="#3d2008" fill-opacity=".7"/><ellipse cx="12" cy="35" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/></g>
+  <g transform="translate(130,155)"><ellipse cx="12" cy="5" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/><rect x="0" y="5" width="24" height="30" rx="2" fill="#3d2008" fill-opacity=".7"/><ellipse cx="12" cy="35" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/></g>
+  <g transform="translate(170,155)"><ellipse cx="12" cy="5" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/><rect x="0" y="5" width="24" height="30" rx="2" fill="#3d2008" fill-opacity=".7"/><ellipse cx="12" cy="35" rx="12" ry="5" fill="#5c3a1e" fill-opacity=".7"/></g>
+  <text x="155" y="238" text-anchor="middle" font-size="16" font-family="'Segoe UI',sans-serif">${u[1]?'✅':'🔒'}</text>
+  <!-- Corridor 1→2 -->
+  <rect x="250" y="140" width="80" height="30" rx="4" fill="#1e293b" fill-opacity=".5"/>
+  <path d="M268 155 L312 155" stroke="#7C3AED" stroke-width="2" stroke-dasharray="5,4" class="dash"/>
+  <polygon points="312,151 322,155 312,159" fill="#7C3AED" fill-opacity=".7"/>
+  <!-- Room 2 -->
+  <rect x="290" y="55" width="200" height="155" rx="6" fill="#B4530918" stroke="#B45309" stroke-width="2" stroke-opacity="${u[2]?0.9:0.4}"/>
+  <rect x="290" y="55" width="200" height="35" rx="6" fill="#B4530933"/>
+  <text x="390" y="78" text-anchor="middle" fill="#FCD34D" font-size="12" font-weight="800" font-family="'Segoe UI',sans-serif">Habitació 2</text>
+  <text x="390" y="93" text-anchor="middle" fill="#FCD34D" font-size="9" fill-opacity=".7" font-family="'Segoe UI',sans-serif">Dormitori del Gegant</text>
+  <rect x="310" y="105" width="160" height="90" rx="6" fill="#180e05" fill-opacity=".8"/>
+  <rect x="310" y="105" width="160" height="25" rx="6" fill="#1c0f06" fill-opacity=".9"/>
+  <rect x="315" y="109" width="20" height="18" rx="3" fill="#251208" fill-opacity=".8"/>
+  <rect x="345" y="109" width="20" height="18" rx="3" fill="#251208" fill-opacity=".8"/>
+  <rect x="375" y="109" width="20" height="18" rx="3" fill="#251208" fill-opacity=".8"/>
+  <rect x="405" y="109" width="20" height="18" rx="3" fill="#251208" fill-opacity=".8"/>
+  <rect x="435" y="109" width="20" height="18" rx="3" fill="#251208" fill-opacity=".8"/>
+  <rect x="315" y="128" width="70" height="55" rx="5" fill="#2a1e12" fill-opacity=".7"/>
+  <text x="390" y="200" text-anchor="middle" font-size="16" font-family="'Segoe UI',sans-serif">${u[2]?'✅':'🔒'}</text>
+  <!-- Corridor 2→3 -->
+  <rect x="490" y="100" width="80" height="30" rx="4" fill="#1e293b" fill-opacity=".5"/>
+  <path d="M508 115 L552 115" stroke="#B45309" stroke-width="2" stroke-dasharray="5,4" class="dash2"/>
+  <polygon points="552,111 562,115 552,119" fill="#B45309" fill-opacity=".7"/>
+  <!-- Room 3 -->
+  <rect x="530" y="70" width="190" height="175" rx="6" fill="#0F766E18" stroke="#0F766E" stroke-width="2" stroke-opacity="${u[3]?0.9:0.4}"/>
+  <rect x="530" y="70" width="190" height="35" rx="6" fill="#0F766E33"/>
+  <text x="625" y="93" text-anchor="middle" fill="#34D399" font-size="12" font-weight="800" font-family="'Segoe UI',sans-serif">Habitació 3</text>
+  <text x="625" y="108" text-anchor="middle" fill="#34D399" font-size="9" fill-opacity=".7" font-family="'Segoe UI',sans-serif">Bosc de l'Elf Lasgole</text>
+  <path d="M555 190 L570 145 L585 190Z" fill="#040a06" fill-opacity=".8"/>
+  <path d="M600 190 L615 142 L630 190Z" fill="#040a06" fill-opacity=".8"/>
+  <path d="M645 190 L660 148 L675 190Z" fill="#040a06" fill-opacity=".8"/>
+  <path d="M690 190 L705 143 L720 190Z" fill="#040a06" fill-opacity=".8"/>
+  <text x="625" y="232" text-anchor="middle" font-size="16" font-family="'Segoe UI',sans-serif">${u[3]?'✅':'🔒'}</text>
+  <!-- Corridor 3→4 -->
+  <rect x="695" y="190" width="30" height="70" rx="4" fill="#1e293b" fill-opacity=".5"/>
+  <path d="M710 208 L710 248" stroke="#0F766E" stroke-width="2" stroke-dasharray="5,4" class="dash3"/>
+  <polygon points="706,248 710,258 714,248" fill="#0F766E" fill-opacity=".7"/>
+  <!-- Room 4 -->
+  <rect x="560" y="235" width="290" height="90" rx="6" fill="#BE185D18" stroke="#BE185D" stroke-width="2" stroke-opacity="${u[4]?0.9:0.4}"/>
+  <rect x="560" y="235" width="290" height="30" rx="6" fill="#BE185D33"/>
+  <text x="705" y="256" text-anchor="middle" fill="#F9A8D4" font-size="12" font-weight="800" font-family="'Segoe UI',sans-serif">Habitació 4</text>
+  <text x="705" y="270" text-anchor="middle" fill="#F9A8D4" font-size="9" fill-opacity=".7" font-family="'Segoe UI',sans-serif">Llac dels Follets Isiyava</text>
+  <path d="M575 285 C620 275,680 292,750 282 C800 275,830 290,840 282 L840 318 L575 318Z" fill="#12092a" fill-opacity=".8"/>
+  <circle cx="620" cy="300" r="4" fill="#60A5FA" fill-opacity=".8" class="blink"/>
+  <circle cx="690" cy="300" r="4" fill="#FCD34D" fill-opacity=".8" class="blink2"/>
+  <circle cx="760" cy="300" r="4" fill="#86EFAC" fill-opacity=".8" class="blink3"/>
+  <text x="705" y="320" text-anchor="middle" font-size="16" font-family="'Segoe UI',sans-serif">${u[4]?'✅':'🔒'}</text>
+  <!-- Entry -->
+  <g transform="translate(40,235)">
+    <rect x="0" y="0" width="50" height="55" rx="4" fill="#07080f" stroke="#475569" stroke-width="1.5" stroke-opacity=".5"/>
+    <path d="M0 30 Q25 10 50 30" fill="#07080f" stroke="#475569" stroke-width="1.5" stroke-opacity=".4"/>
+    <text x="25" y="48" text-anchor="middle" fill="#64748b" font-size="9" font-family="'Segoe UI',sans-serif">Entrada</text>
+    <path d="M50 28 L66 28" stroke="#7C3AED" stroke-width="2" class="pulse"/>
+    <polygon points="58,24 66,28 58,32" fill="#7C3AED" fill-opacity=".8"/>
+  </g>
+  <!-- Legend -->
+  <circle cx="63" cy="318" r="6" fill="#4ade80" fill-opacity=".3" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="75" y="322" fill="#4ade80" font-size="10" fill-opacity=".7" font-family="'Segoe UI',sans-serif">Superada</text>
+  <circle cx="150" cy="318" r="6" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="2,2"/>
+  <text x="162" y="322" fill="#64748b" font-size="10" font-family="'Segoe UI',sans-serif">Tancada</text>
+  <path d="M225 318 L250 318" stroke="#7C3AED" stroke-width="2" stroke-dasharray="5,4" class="dash"/>
+  <text x="255" y="322" fill="#94a3b8" font-size="10" font-family="'Segoe UI',sans-serif">Passadís</text>
+</svg>`;
+}
 
-  if (isUnlocked) return (
-    <motion.div initial={{ scale:0.9,opacity:0 }} animate={{ scale:1,opacity:1 }}
-      style={{ display:"flex",alignItems:"center",gap:"12px",padding:"16px 20px",background:"#052e16",border:"1px solid #16a34a55",borderRadius:"12px" }}>
-      <span style={{ fontSize:"24px" }}>✅</span>
+// ═══════════════════════════════════════════════════════
+// RENDER HELPERS
+// ═══════════════════════════════════════════════════════
+function hex2rgba(hex, a) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function setCSSVars(el, color) {
+  el.style.setProperty('--room-color', color);
+  el.style.setProperty('--room-color-18', hex2rgba(color, 0.18));
+  el.style.setProperty('--room-color-22', hex2rgba(color, 0.22));
+  el.style.setProperty('--room-color-33', hex2rgba(color, 0.33));
+  el.style.setProperty('--room-color-44', hex2rgba(color, 0.44));
+  el.style.setProperty('--room-color-55', hex2rgba(color, 0.55));
+  el.style.setProperty('--room-color-66', hex2rgba(color, 0.66));
+  el.style.setProperty('--room-color-grad', `linear-gradient(135deg,${color},${color}cc)`);
+}
+
+function unlockedCount() {
+  return [1,2,3,4].filter(i => state.unlocked[i]).length;
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER FUNCTIONS
+// ═══════════════════════════════════════════════════════
+function renderSidebar() {
+  const nav = document.getElementById('sidebar-nav');
+  nav.innerHTML = '';
+  ROOMS.forEach(room => {
+    const isActive = !state.showMap && state.current === room.id;
+    const isUnlocked = state.unlocked[room.id];
+    const btn = document.createElement('button');
+    btn.className = 'room-btn' + (isActive ? ' active' : '');
+    if (isActive) setCSSVars(btn, room.color);
+    btn.style.setProperty('--room-color-55', hex2rgba(room.color, 0.55));
+    btn.style.setProperty('--room-color-18', hex2rgba(room.color, 0.18));
+    btn.innerHTML = `
+      <div class="room-icon ${isUnlocked?'unlocked':'locked'}" style="--room-color-44:${hex2rgba(room.color,.44)}">
+        ${isUnlocked ? '✅' : room.emoji}
+      </div>
+      <div style="min-width:0">
+        <div class="room-label">Prova ${room.id}</div>
+        <div class="room-sublabel">${room.title}</div>
+        ${isActive ? `<div class="now-badge" style="background:${room.color}">ARA</div>` : ''}
+      </div>`;
+    btn.addEventListener('click', () => { state.showMap = false; state.current = room.id; render(); });
+    nav.appendChild(btn);
+  });
+
+  const mapBtn = document.getElementById('map-btn');
+  mapBtn.className = 'sidebar-map-btn' + (state.showMap ? ' active' : '');
+  document.getElementById('map-arrow').textContent = state.showMap ? '▲' : '▼';
+}
+
+function renderProgress() {
+  const c = unlockedCount();
+  document.getElementById('progress-text').textContent = c + '/4 proves';
+  document.getElementById('progress-fill').style.width = (c/4*100) + '%';
+}
+
+function renderMain() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '';
+
+  if (state.showMap) {
+    main.appendChild(renderMapPanel());
+    return;
+  }
+
+  if (unlockedCount() === 4) {
+    main.appendChild(renderFinal());
+    return;
+  }
+
+  const room = ROOMS.find(r => r.id === state.current) || ROOMS[0];
+  main.appendChild(renderRoom(room));
+
+  // nav bar
+  const nav = document.createElement('div');
+  nav.className = 'nav-bar';
+  nav.innerHTML = `
+    <div class="nav-hint"><strong>Recordeu:</strong> escriviu el procediment pas a pas i justifiqueu per què la tècnica funciona.</div>
+    <div class="nav-btns">
+      <button class="btn-nav" ${state.current===1?'disabled':''} onclick="goRoom(${state.current-1})">← Anterior</button>
+      <button class="${state.current===4?'btn-nav':'btn-nav-primary'}" ${state.current===4?'disabled':''} onclick="goRoom(${state.current+1})">Següent →</button>
+    </div>`;
+  main.appendChild(nav);
+}
+
+function renderRoom(room) {
+  const isUnlocked = state.unlocked[room.id];
+  const clueIds = room.clueIds;
+
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.style.border = `1px solid ${hex2rgba(room.color, .27)}`;
+  div.style.boxShadow = `0 0 60px ${hex2rgba(room.color, .1)}`;
+  setCSSVars(div, room.color);
+
+  // Build clues HTML
+  let cluesHTML = '';
+  if (clueIds.length) {
+    cluesHTML = `<div class="clues-box">
+      <div class="clues-title">💡 Pistes rellevants per aquesta prova</div>
+      <div style="padding:14px 18px;display:flex;flex-direction:column;gap:6px;">
+        ${clueIds.map(id => `<div style="color:#93c5fd;font-size:13px;padding:6px 10px;background:#0a1628;border-radius:8px;">${CLUES[id]}</div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Code gate
+  let codeGateHTML = '';
+  if (isUnlocked) {
+    codeGateHTML = `<div class="unlocked-msg">
+      <span style="font-size:24px">✅</span>
       <div>
-        <div style={{ color:"#4ade80",fontWeight:700,fontSize:"14px" }}>Prova superada!</div>
-        <div style={{ color:"#86efac",fontSize:"12px" }}>Porta desbloquejada — podeu avançar</div>
+        <div class="unlocked-msg-title">Prova superada!</div>
+        <div class="unlocked-msg-sub">Porta desbloquejada — podeu avançar</div>
       </div>
-    </motion.div>
-  );
-
-  const st = {
-    ok:{ bg:"#052e16",border:"#16a34a55",text:"#4ade80",msg:"✅ Codi correcte! Obrint la porta…" },
-    err:{ bg:"#1a0a0a",border:"#dc262655",text:"#f87171",msg:"❌ Codi incorrecte. Torneu-ho a provar." },
-    warn:{ bg:"#1a1200",border:"#d9770655",text:"#fbbf24",msg:"⚠️ El codi ha de tenir exactament 5 xifres." },
-  };
-
-  return (
-    <div style={{ display:"flex",flexDirection:"column",gap:"12px" }}>
-      <div style={{ padding:"16px 20px",background:"#0d0d1a",border:"1px solid #ffffff15",borderRadius:"12px" }}>
-        <div style={{ color:"#94a3b8",fontSize:"12px",marginBottom:"12px",display:"flex",alignItems:"center",gap:"8px" }}>
-          <span>🔐</span><span>El/la professor·a us donarà el codi quan validi la vostra resposta a la llibreta</span>
-        </div>
-        <div style={{ display:"flex",gap:"10px",flexWrap:"wrap" }}>
-          <input value={code}
-            onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,5))}
-            onKeyDown={e=>e.key==="Enter"&&tryUnlock()}
-            placeholder="· · · · ·" maxLength={5} inputMode="numeric"
-            style={{ flex:1,minWidth:"140px",background:"#1e1b4b",border:`2px solid ${shake?"#ef4444":color+"66"}`,borderRadius:"10px",
-              padding:"12px 16px",color:"#e2e8f0",fontSize:"22px",fontFamily:"monospace",letterSpacing:"0.3em",
-              textAlign:"center",outline:"none",animation:shake?"shake 0.5s ease":"none" }}/>
-          <button onClick={tryUnlock}
-            style={{ background:`linear-gradient(135deg,${color},${color}cc)`,border:"none",borderRadius:"10px",padding:"12px 20px",
-              color:"white",fontSize:"14px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:"8px",
-              boxShadow:`0 4px 20px ${color}44`,whiteSpace:"nowrap" }}>
-            🚪 Desbloqueja
-          </button>
+    </div>`;
+  } else {
+    codeGateHTML = `<div class="code-gate">
+      <div class="code-gate-info">
+        <div class="code-gate-hint">🔐 El/la professor·a us donarà el codi quan validi la vostra resposta a la llibreta</div>
+        <div class="code-gate-row">
+          <input class="code-input" id="code-${room.id}" type="text" inputmode="numeric" maxlength="5" placeholder="· · · · ·" onkeydown="if(event.key==='Enter')tryUnlock(${room.id})"/>
+          <button class="btn-unlock" onclick="tryUnlock(${room.id})">🚪 Desbloqueja</button>
         </div>
       </div>
-      <AnimatePresence>
-        {status&&(
-          <motion.div key={status} initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} exit={{opacity:0}}
-            style={{ padding:"12px 16px",background:st[status].bg,border:`1px solid ${st[status].border}`,
-              borderRadius:"10px",color:st[status].text,fontSize:"14px",fontWeight:500 }}>
-            {st[status].msg}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}`}</style>
-    </div>
-  );
-}
+      <div id="code-msg-${room.id}" style="display:none"></div>
+    </div>`;
+  }
 
-// ─── INTRO SCREEN ─────────────────────────────────────────────────────────────
-function IntroScreen({ onStart }) {
-  return (
-    <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
-      style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
-        background:"radial-gradient(ellipse at 30% 20%, #1e0a3c 0%, #050714 50%, #000 100%)",padding:"16px" }}>
-
-      {/* Animated particles background */}
-      <div style={{ position:"fixed",inset:0,overflow:"hidden",pointerEvents:"none" }}>
-        {[...Array(20)].map((_,i)=>(
-          <motion.div key={i}
-            style={{ position:"absolute",left:`${5+i*4.5}%`,top:`${10+(i%7)*12}%`,
-              width:i%3===0?"4px":"2px",height:i%3===0?"4px":"2px",
-              borderRadius:"50%",background:["#A78BFA","#F472B6","#60A5FA","#34D399"][i%4] }}
-            animate={{ y:[0,-30,0],opacity:[0.1,0.6,0.1] }}
-            transition={{ duration:3+i*0.4,repeat:Infinity,delay:i*0.3 }}/>
-        ))}
-      </div>
-
-      <div style={{ position:"relative",zIndex:1,maxWidth:"720px",width:"100%" }}>
-
-        {/* Castle SVG header */}
-        <div style={{ marginBottom:"24px",overflow:"hidden",borderRadius:"20px 20px 0 0" }}>
-          <svg viewBox="0 0 720 200" style={{ width:"100%",height:"160px",display:"block" }}>
-            <defs>
-              <radialGradient id="introGlow" cx="50%" cy="30%" r="60%">
-                <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.3"/>
-                <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-              </radialGradient>
-            </defs>
-            <rect x="0" y="0" width="720" height="200" fill="radial-gradient(ellipse,#0f0b1f,#000)"/>
-            <rect x="0" y="0" width="720" height="200" fill="url(#introGlow)"/>
-
-            {/* Stars */}
-            {[30,80,140,200,260,320,390,450,520,580,650,700].map((x,i)=>(
-              <motion.circle key={i} cx={x} cy={10+(i%6)*20} r={i%4===0?2:1.2} fill="#e2e8f0"
-                animate={{ opacity:[0.1,0.5,0.1] }} transition={{ duration:2+i*0.3,repeat:Infinity,delay:i*0.2 }}/>
-            ))}
-
-            {/* Full castle */}
-            <g opacity="0.9">
-              {/* Main keep */}
-              <rect x="280" y="60" width="160" height="140" fill="#070810"/>
-              {/* Battlements keep */}
-              {[285,305,325,345,365,385,405,425].map((x,i)=>(
-                <rect key={i} x={x} y={i%2===0?48:54} width="14" height={i%2===0?15:10} rx="2" fill="#0a0b14"/>
-              ))}
-              {/* Left tower */}
-              <rect x="200" y="80" width="90" height="120" fill="#080910"/>
-              {[205,220,235,250,265,275].map((x,i)=>(
-                <rect key={i} x={x} y={i%2===0?68:74} width="10" height={i%2===0?14:9} rx="2" fill="#0a0b14"/>
-              ))}
-              {/* Right tower */}
-              <rect x="430" y="80" width="90" height="120" fill="#080910"/>
-              {[435,450,465,480,495,508].map((x,i)=>(
-                <rect key={i} x={x} y={i%2===0?68:74} width="10" height={i%2===0?14:9} rx="2" fill="#0a0b14"/>
-              ))}
-              {/* Far left tower */}
-              <rect x="100" y="100" width="65" height="100" fill="#060709"/>
-              {/* Far right tower */}
-              <rect x="555" y="100" width="65" height="100" fill="#060709"/>
-              {/* Windows glowing */}
-              {[[310,100],[330,100],[350,100],[370,100],[390,100],[410,100],
-                [220,100],[460,100],[120,120],[570,120],[310,130],[370,130],[430,130]].map(([cx,cy],i)=>(
-                <g key={i}>
-                  <rect x={cx-5} y={cy} width="10" height="14" rx="5" fill="#A78BFA" fillOpacity={0.4+i%3*0.2}/>
-                </g>
-              ))}
-              {/* Gate arch */}
-              <path d="M320 200 L320 155 Q360 130 400 155 L400 200Z" fill="#050714"/>
-              {/* Gate metal */}
-              {[0,1,2,3].map(i=>(
-                <line key={i} x1={325+i*18} y1="200" x2={325+i*18} y2="155" stroke="#1e293b" strokeWidth="3" strokeOpacity="0.7"/>
-              ))}
-              {/* Ground/grass */}
-              <path d="M0 195 C120 180,240 200,360 190 C480 180,600 200,720 190 L720 200 L0 200Z" fill="#050714"/>
-            </g>
-
-            {/* Moon */}
-            <circle cx="620" cy="45" r="35" fill="#1a0a2e" stroke="#A78BFA" strokeWidth="1" strokeOpacity="0.4"/>
-            <circle cx="610" cy="38" r="30" fill="#050714"/>
-            {/* Bats */}
-            {[[100,40],[150,55],[500,35],[560,50]].map(([x,y],i)=>(
-              <motion.g key={i} transform={`translate(${x},${y})`}
-                animate={{ x:[0,20,0],y:[0,-8,0] }} transition={{ duration:3+i*0.5,repeat:Infinity }}>
-                <path d={`M0 0 Q-15 -10 -20 -2 M0 0 Q15 -10 20 -2`} stroke="#1e1b4b" strokeWidth="2" fill="none"/>
-                <circle cx="0" cy="0" r="3" fill="#0d0e1a"/>
-              </motion.g>
-            ))}
-
-            {/* Title text */}
-            <text x="360" y="195" textAnchor="middle" fill="#A78BFA" fontSize="13" fillOpacity="0.7" letterSpacing="3">
-              EL CASTELL DELS MORLEY
-            </text>
-          </svg>
-        </div>
-
-        {/* Content card */}
-        <div style={{ background:"#08091acc",backdropFilter:"blur(20px)",border:"1px solid #7C3AED44",
-          borderRadius:"0 0 20px 20px",borderTop:"none",overflow:"hidden" }}>
-
-          {/* Red danger banner */}
-          <div style={{ padding:"10px 24px",background:"#1a0a0a",borderBottom:"1px solid #7f1d1d55",
-            display:"flex",alignItems:"center",gap:"12px" }}>
-            <motion.span style={{ fontSize:"20px" }} animate={{ opacity:[1,0.3,1] }} transition={{ duration:1,repeat:Infinity }}>⚠️</motion.span>
-            <span style={{ color:"#fca5a5",fontSize:"13px",fontWeight:600 }}>
-              No pots fer cap errada! Una sola errada i seràs un esclau dels Morley!
-            </span>
-          </div>
-
-          <div style={{ padding:"28px 32px" }}>
-
-            {/* Badge */}
-            <div style={{ display:"inline-flex",alignItems:"center",gap:"8px",padding:"6px 14px",
-              background:"#1e1b4b",border:"1px solid #4338ca44",borderRadius:"99px",
-              color:"#a5b4fc",fontSize:"11px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"20px" }}>
-              🔬 Física i Química · 2n d'ESO · Separació de mescles
-            </div>
-
-            <h1 style={{ fontSize:"26px",fontWeight:900,color:"#f1f5f9",letterSpacing:"-0.03em",marginBottom:"14px",lineHeight:1.2 }}>
-              Podreu escapar del castell?
-            </h1>
-
-            <div style={{ color:"#cbd5e1",fontSize:"15px",lineHeight:1.8,marginBottom:"20px",
-              borderLeft:"3px solid #7C3AED",paddingLeft:"16px" }}>
-              Es fa fosc al castell dels Morley… Has caigut en mans dels maleïts comtes Morley. No et deixen marxar… si no escapes del castell <strong style={{ color:"#a78bfa" }}>abans de la mitjanit</strong>, romandràs al seu castell per sempre més i els serviràs la resta dels teus dies…
-              <br/><br/>
-              Però, no tot està perdut! Si aconsegueixes superar les <strong style={{ color:"#f472b6" }}>quatre proves</strong> que et proposaran, seràs lliure!
-            </div>
-
-            {/* Clues box */}
-            <div style={{ background:"#0d1117",border:"1px solid #1e3a5f",borderRadius:"14px",
-              overflow:"hidden",marginBottom:"24px" }}>
-              <div style={{ padding:"12px 18px",background:"#0c1929",borderBottom:"1px solid #1e3a5f",
-                color:"#60A5FA",fontSize:"12px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",
-                display:"flex",alignItems:"center",gap:"8px" }}>
-                💡 Pistes que hauries de tenir en compte
-              </div>
-              <div style={{ padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-                {CLUES.map((clue,i)=>(
-                  <div key={i} style={{ padding:"10px 14px",background:"#0a1628",borderRadius:"10px",
-                    border:"1px solid #1e3a5f55",color:"#93c5fd",fontSize:"13px",lineHeight:1.5 }}>
-                    {clue}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Objectives */}
-            <div style={{ background:"#0d0d1a",border:"1px solid #7C3AED33",borderRadius:"14px",
-              overflow:"hidden",marginBottom:"28px" }}>
-              <div style={{ padding:"12px 18px",background:"#7C3AED22",borderBottom:"1px solid #7C3AED22",
-                color:"#c4b5fd",fontSize:"12px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>
-                🎯 Objectius de l'activitat
-              </div>
-              <div style={{ padding:"14px 18px",display:"flex",flexDirection:"column",gap:"8px" }}>
-                {[
-                  "Conèixer les tècniques de separació dels components de les mescles",
-                  "Interpretar el concepte de solubilitat",
-                  "Conèixer l'instrumental de laboratori necessari",
-                  "Dibuixar diagrames de separació",
-                ].map((obj,i)=>(
-                  <div key={i} style={{ display:"flex",alignItems:"flex-start",gap:"10px" }}>
-                    <div style={{ width:"22px",height:"22px",background:"#7C3AED",borderRadius:"6px",
-                      display:"flex",alignItems:"center",justifyContent:"center",color:"white",
-                      fontSize:"11px",fontWeight:800,flexShrink:0 }}>{i+1}</div>
-                    <div style={{ color:"#cbd5e1",fontSize:"13px",paddingTop:"3px" }}>{obj}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button onClick={onStart}
-              style={{ width:"100%",background:"linear-gradient(135deg,#7C3AED,#BE185D)",border:"none",
-                borderRadius:"14px",padding:"18px",color:"white",fontSize:"17px",fontWeight:800,
-                cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:"12px",
-                boxShadow:"0 8px 32px #7C3AED55",letterSpacing:"-0.01em" }}>
-              <motion.span animate={{ x:[0,6,0] }} transition={{ duration:1.2,repeat:Infinity }}>⚔️</motion.span>
-              Accepta el repte i entra al castell
-              <motion.span animate={{ x:[0,6,0] }} transition={{ duration:1.2,repeat:Infinity,delay:0.3 }}>🏰</motion.span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── ROOM CARD ────────────────────────────────────────────────────────────────
-function RoomCard({ room, unlocked, onUnlock }) {
-  const IllustrationComponent = ILLUSTRATIONS[room.id];
-  return (
-    <motion.div key={room.id} initial={{ opacity:0,x:20 }} animate={{ opacity:1,x:0 }} exit={{ opacity:0,x:-20 }}
-      transition={{ duration:0.3,ease:"easeOut" }}>
-      <div style={{ background:"#08091a",border:`1px solid ${room.color}44`,borderRadius:"20px",
-        overflow:"hidden",boxShadow:`0 0 60px ${room.color}18` }}>
-
-        {/* Header */}
-        <div style={{ padding:"24px 28px 20px",background:`linear-gradient(135deg,${room.color}22 0%,transparent 60%)`,
-          borderBottom:`1px solid ${room.color}22` }}>
-          <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"16px" }}>
+  div.innerHTML = `
+    <div class="card-header" style="background:linear-gradient(135deg,${hex2rgba(room.color,.13)} 0%,transparent 60%);border-bottom:1px solid ${hex2rgba(room.color,.13)};">
+      <div class="card-header-inner">
+        <div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+            <span style="font-size:28px">${room.emoji}</span>
             <div>
-              <div style={{ display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px" }}>
-                <span style={{ fontSize:"28px" }}>{room.emoji}</span>
-                <div>
-                  <div style={{ color:"#e2e8f0",fontSize:"18px",fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.2 }}>
-                    {room.title}
-                  </div>
-                  <div style={{ color:room.glow,fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:"2px" }}>
-                    {room.subtitle}
-                  </div>
-                </div>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:"8px",marginTop:"8px" }}>
-                <span style={{ fontSize:"16px" }}>{room.charEmoji}</span>
-                <span style={{ color:"#64748b",fontSize:"12px",fontStyle:"italic" }}>{room.character}</span>
-                <span style={{ color:"#334155",fontSize:"12px" }}>·</span>
-                <span style={{ color:"#64748b",fontSize:"12px",fontStyle:"italic" }}>{room.vibe}</span>
-              </div>
+              <div class="card-title">${room.title}</div>
+              <div class="card-subtitle" style="color:${room.glow}">${room.subtitle}</div>
             </div>
-            <div style={{ padding:"6px 14px",background:unlocked?"#052e16":"#1e1b4b",
-              border:`1px solid ${unlocked?"#16a34a55":room.color+"44"}`,borderRadius:"99px",
-              color:unlocked?"#4ade80":"#94a3b8",fontSize:"12px",fontWeight:700,whiteSpace:"nowrap",flexShrink:0 }}>
-              {unlocked?"✅ Superada":"🔒 Tancada"}
-            </div>
+          </div>
+          <div class="card-vibe">
+            <span>${room.charEmoji}</span>
+            <span style="color:#475569">·</span>
+            <span>${room.vibe}</span>
           </div>
         </div>
-
-        {/* Body */}
-        <div style={{ padding:"24px 28px",display:"flex",flexDirection:"column",gap:"20px" }}>
-
-          {/* Story */}
-          <div style={{ color:"#cbd5e1",fontSize:"15px",lineHeight:1.7,padding:"16px 20px",
-            background:"#0d0d1a",borderRadius:"12px",borderLeft:`3px solid ${room.color}` }}>
-            {room.story}
-          </div>
-
-          {/* Illustration */}
-          <div style={{ borderRadius:"16px",overflow:"hidden",border:`1px solid ${room.color}33`,
-            boxShadow:`0 0 40px ${room.color}12 inset` }}>
-            <div style={{ background:"linear-gradient(135deg,#050714 0%,#0f0b1f 100%)" }}>
-              <IllustrationComponent color={room.color}/>
-            </div>
-            <div style={{ padding:"8px 14px",background:"#050714",borderTop:`1px solid ${room.color}22`,
-              color:room.glow,fontSize:"10px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",
-              display:"flex",alignItems:"center",gap:"6px" }}>
-              <span>✨</span> Il·lustració ambiental · {room.subtitle}
-            </div>
-          </div>
-
-          {/* Relevant clues */}
-          {room.clueIds.length > 0 && (
-            <div style={{ background:"#0c1929",border:"1px solid #1e3a5f55",borderRadius:"12px",padding:"14px 18px" }}>
-              <div style={{ color:"#60A5FA",fontSize:"11px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px",display:"flex",alignItems:"center",gap:"6px" }}>
-                💡 Pistes rellevants per aquesta prova
-              </div>
-              <div style={{ display:"flex",flexDirection:"column",gap:"6px" }}>
-                {room.clueIds.map(id=>(
-                  <div key={id} style={{ color:"#93c5fd",fontSize:"13px",padding:"6px 10px",
-                    background:"#0a1628",borderRadius:"8px" }}>{CLUES[id]}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Tasks */}
-          <div style={{ background:"#08091a",border:`1px solid ${room.color}33`,borderRadius:"14px",overflow:"hidden" }}>
-            <div style={{ padding:"14px 20px",background:`${room.color}18`,borderBottom:`1px solid ${room.color}22`,
-              color:"#e2e8f0",fontSize:"13px",fontWeight:700,display:"flex",alignItems:"center",gap:"8px",
-              textTransform:"uppercase",letterSpacing:"0.08em" }}>
-              📋 Què has de fer a la llibreta
-            </div>
-            <div style={{ padding:"16px 20px",display:"flex",flexDirection:"column",gap:"12px" }}>
-              {room.tasks.map((task,i)=>(
-                <div key={i} style={{ display:"flex",alignItems:"flex-start",gap:"12px" }}>
-                  <div style={{ minWidth:"28px",height:"28px",display:"flex",alignItems:"center",justifyContent:"center",
-                    background:room.color,borderRadius:"8px",color:"white",fontSize:"13px",fontWeight:800,flexShrink:0 }}>
-                    {i+1}
-                  </div>
-                  <div style={{ color:"#cbd5e1",fontSize:"14px",lineHeight:1.6,paddingTop:"4px" }}>{task}</div>
-                </div>
-              ))}
-              <div style={{ marginTop:"4px",padding:"10px 14px",background:"#1e1b4b55",borderRadius:"8px",
-                color:"#94a3b8",fontSize:"12px" }}>
-                🧪 <strong style={{ color:"#c4b5fd" }}>Recorda:</strong> justifica per què la tècnica escollida funciona i quin instrumental de laboratori és necessari.
-              </div>
-            </div>
-          </div>
-
-          {/* Code gate */}
-          <CodeGate roomId={room.id} onUnlock={onUnlock} isUnlocked={unlocked} color={room.color}/>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── FINAL SCREEN ─────────────────────────────────────────────────────────────
-function FinalScreen({ onReset }) {
-  return (
-    <motion.div initial={{ opacity:0,scale:0.95 }} animate={{ opacity:1,scale:1 }} transition={{ duration:0.5,ease:"backOut" }}
-      style={{ background:"#08091a",border:"1px solid #16a34a55",borderRadius:"20px",overflow:"hidden",boxShadow:"0 0 80px #16a34a22" }}>
-      <div style={{ padding:"40px 32px",textAlign:"center",background:"linear-gradient(135deg,#052e1644 0%,transparent 60%)" }}>
-        <motion.div style={{ fontSize:"64px",marginBottom:"16px" }}
-          animate={{ rotate:[0,10,-10,0],scale:[1,1.1,1] }} transition={{ duration:2,repeat:Infinity,repeatDelay:3 }}>💀</motion.div>
-        <h2 style={{ color:"#4ade80",fontSize:"28px",fontWeight:900,letterSpacing:"-0.03em",marginBottom:"12px" }}>
-          Heu escapat del castell dels Morley!
-        </h2>
-        <p style={{ color:"#86efac",fontSize:"15px",lineHeight:1.7,maxWidth:"520px",margin:"0 auto 24px" }}>
-          Felicitats! Heu superat les 4 proves de separació de mescles. Ara toca revisar amb el/la professor·a el raonament, els diagrames i l'instrumental de laboratori de cadascuna.
-        </p>
-        <div style={{ display:"inline-flex",alignItems:"flex-start",gap:"10px",padding:"16px 24px",
-          background:"#052e16",border:"1px solid #16a34a55",borderRadius:"14px",
-          color:"#86efac",fontSize:"14px",marginBottom:"24px",textAlign:"left",maxWidth:"480px" }}>
-          <span style={{ fontSize:"20px",flexShrink:0 }}>🎯</span>
-          <span>L'objectiu és explicar bé el <strong style={{ color:"#4ade80" }}>raonament</strong>: quina tècnica uses, per què funciona per a cada component i quin instrumental cal per dur-la a terme.</span>
-        </div>
-        <br/>
-        <button onClick={onReset}
-          style={{ background:"linear-gradient(135deg,#16a34a,#15803d)",border:"none",borderRadius:"12px",
-            padding:"14px 28px",color:"white",fontSize:"15px",fontWeight:700,cursor:"pointer",
-            display:"inline-flex",alignItems:"center",gap:"10px",boxShadow:"0 4px 20px #16a34a44" }}>
-          🔄 Tornar a començar
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── CASTLE MAP PANEL ─────────────────────────────────────────────────────────
-function CastleMapPanel({ unlocked, onClose }) {
-  const roomPositions = [
-    { id:1, x:120, y:130, label:"Habitació 1", sublabel:"Celler del Nan Johnny", color:"#7C3AED" },
-    { id:2, x:350, y:80,  label:"Habitació 2", sublabel:"Dormitori del Gegant",  color:"#B45309" },
-    { id:3, x:580, y:130, label:"Habitació 3", sublabel:"Bosc de l'Elf Lasgole", color:"#0F766E" },
-    { id:4, x:750, y:200, label:"Habitació 4", sublabel:"Llac dels Follets",      color:"#BE185D" },
-  ];
-  return (
-    <motion.div initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:20 }}
-      transition={{ duration:0.3 }}>
-      <div style={{ background:"#08091a", border:"1px solid #7C3AED44", borderRadius:"20px",
-        overflow:"hidden", boxShadow:"0 0 60px #7C3AED18" }}>
-
-        {/* Header */}
-        <div style={{ padding:"22px 28px 18px", background:"linear-gradient(135deg,#7C3AED22 0%,transparent 60%)",
-          borderBottom:"1px solid #7C3AED22", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div>
-            <div style={{ color:"#e2e8f0", fontSize:"18px", fontWeight:800, letterSpacing:"-0.02em" }}>
-              🗺️ Mapa del Castell dels Morley
-            </div>
-            <div style={{ color:"#A78BFA", fontSize:"11px", fontWeight:600, textTransform:"uppercase",
-              letterSpacing:"0.1em", marginTop:"3px" }}>
-              Orientació · Les 4 habitacions
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background:"#1e293b", border:"1px solid #334155",
-            borderRadius:"10px", padding:"8px 14px", color:"#94a3b8", fontSize:"13px",
-            fontWeight:600, cursor:"pointer" }}>
-            ✕ Tanca
-          </button>
-        </div>
-
-        <div style={{ padding:"24px 28px", display:"flex", flexDirection:"column", gap:"20px" }}>
-
-          {/* Story recap */}
-          <div style={{ color:"#cbd5e1", fontSize:"14px", lineHeight:1.7, padding:"14px 18px",
-            background:"#0d0d1a", borderRadius:"12px", borderLeft:"3px solid #7C3AED" }}>
-            Es fa fosc al castell dels Morley… Has caigut en mans dels maleïts comtes Morley. Si no escapes
-            del castell <strong style={{ color:"#a78bfa" }}>abans de la mitjanit</strong>, romandràs al seu
-            castell per sempre més. Supera les <strong style={{ color:"#f472b6" }}>quatre proves</strong> i seràs lliure!
-          </div>
-
-          {/* Castle map SVG */}
-          <div style={{ borderRadius:"16px", overflow:"hidden", border:"1px solid #7C3AED33",
-            background:"linear-gradient(135deg,#050714,#0f0b1f)" }}>
-            <svg viewBox="0 0 900 340" style={{ width:"100%", display:"block" }}>
-              <defs>
-                <radialGradient id="mapGlow" cx="50%" cy="40%" r="55%">
-                  <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.12"/>
-                  <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-                </radialGradient>
-                <filter id="mapBlur"><feGaussianBlur stdDeviation="3"/></filter>
-              </defs>
-              <rect x="0" y="0" width="900" height="340" fill="url(#mapGlow)"/>
-
-              {/* Starfield */}
-              {[40,90,160,230,300,370,440,510,580,650,720,790,860].map((x,i)=>(
-                <motion.circle key={i} cx={x} cy={8+(i%5)*12} r={i%4===0?1.8:1} fill="#e2e8f0"
-                  animate={{ opacity:[0.1,0.4,0.1] }} transition={{ duration:2+i*0.3,repeat:Infinity,delay:i*0.2 }}/>
-              ))}
-
-              {/* Castle outline — top-down floor plan feel */}
-              {/* Outer walls */}
-              <rect x="40" y="50" width="820" height="240" rx="8" fill="none" stroke="#334155" strokeWidth="2" strokeOpacity="0.5" strokeDasharray="8,6"/>
-
-              {/* Room 1 — cellar bottom-left */}
-              <g>
-                <rect x="60" y="90" width="190" height="160" rx="6" fill="#7C3AED18" stroke="#7C3AED" strokeWidth="2" strokeOpacity={unlocked[1]?0.9:0.4}/>
-                <rect x="60" y="90" width="190" height="35" rx="6" fill="#7C3AED33"/>
-                <text x="155" y="113" textAnchor="middle" fill="#A78BFA" fontSize="12" fontWeight="800">Habitació 1</text>
-                <text x="155" y="128" textAnchor="middle" fill="#A78BFA" fontSize="9" fillOpacity="0.7">Celler del Nan Johnny</text>
-                {/* Barrel icons */}
-                {[90,130,170].map((x,i)=>(
-                  <g key={i} transform={`translate(${x},155)`}>
-                    <ellipse cx="12" cy="5" rx="12" ry="5" fill="#5c3a1e" fillOpacity="0.7"/>
-                    <rect x="0" y="5" width="24" height="30" rx="2" fill="#3d2008" fillOpacity="0.7"/>
-                    <ellipse cx="12" cy="35" rx="12" ry="5" fill="#5c3a1e" fillOpacity="0.7"/>
-                    {[12,22].map(y=>(<line key={y} x1="0" y1={y} x2="24" y2={y} stroke="#2a1505" strokeWidth="1.5" strokeOpacity="0.6"/>))}
-                  </g>
-                ))}
-                {unlocked[1] && <text x="155" y="238" textAnchor="middle" fill="#4ade80" fontSize="14">✅</text>}
-                {!unlocked[1] && <text x="155" y="238" textAnchor="middle" fill="#7C3AED" fontSize="14" fillOpacity="0.5">🔒</text>}
-              </g>
-
-              {/* Corridor H1→H2 */}
-              <rect x="250" y="140" width="80" height="30" rx="4" fill="#1e293b" fillOpacity="0.5"/>
-              <motion.path d="M268 155 L312 155" stroke="#7C3AED" strokeWidth="2" strokeDasharray="5,4"
-                animate={{ strokeDashoffset:[0,-18] }} transition={{ duration:1.5,repeat:Infinity,ease:"linear" }}/>
-              <polygon points="312,151 322,155 312,159" fill="#7C3AED" fillOpacity="0.7"/>
-
-              {/* Room 2 — upper centre */}
-              <g>
-                <rect x="290" y="55" width="200" height="155" rx="6" fill="#B4530918" stroke="#B45309" strokeWidth="2" strokeOpacity={unlocked[2]?0.9:0.4}/>
-                <rect x="290" y="55" width="200" height="35" rx="6" fill="#B4530933"/>
-                <text x="390" y="78" textAnchor="middle" fill="#FCD34D" fontSize="12" fontWeight="800">Habitació 2</text>
-                <text x="390" y="93" textAnchor="middle" fill="#FCD34D" fontSize="9" fillOpacity="0.7">Dormitori del Gegant</text>
-                {/* Bed icon */}
-                <g transform="translate(310,105)">
-                  <rect x="0" y="0" width="160" height="90" rx="6" fill="#180e05" fillOpacity="0.8"/>
-                  <rect x="0" y="0" width="160" height="25" rx="6" fill="#1c0f06" fillOpacity="0.9"/>
-                  {[15,45,75,105,135].map((x,i)=>(<rect key={i} x={x} y="4" width="20" height="18" rx="3" fill="#251208" fillOpacity="0.8"/>))}
-                  <rect x="5" y="24" width="70" height="55" rx="5" fill="#2a1e12" fillOpacity="0.7"/>
-                </g>
-                {unlocked[2] && <text x="390" y="200" textAnchor="middle" fill="#4ade80" fontSize="14">✅</text>}
-                {!unlocked[2] && <text x="390" y="200" textAnchor="middle" fill="#B45309" fontSize="14" fillOpacity="0.5">🔒</text>}
-              </g>
-
-              {/* Corridor H2→H3 */}
-              <rect x="490" y="100" width="80" height="30" rx="4" fill="#1e293b" fillOpacity="0.5"/>
-              <motion.path d="M508 115 L552 115" stroke="#B45309" strokeWidth="2" strokeDasharray="5,4"
-                animate={{ strokeDashoffset:[0,-18] }} transition={{ duration:1.5,repeat:Infinity,ease:"linear",delay:0.5 }}/>
-              <polygon points="552,111 562,115 552,119" fill="#B45309" fillOpacity="0.7"/>
-
-              {/* Room 3 — middle right */}
-              <g>
-                <rect x="530" y="70" width="190" height="175" rx="6" fill="#0F766E18" stroke="#0F766E" strokeWidth="2" strokeOpacity={unlocked[3]?0.9:0.4}/>
-                <rect x="530" y="70" width="190" height="35" rx="6" fill="#0F766E33"/>
-                <text x="625" y="93" textAnchor="middle" fill="#34D399" fontSize="12" fontWeight="800">Habitació 3</text>
-                <text x="625" y="108" textAnchor="middle" fill="#34D399" fontSize="9" fillOpacity="0.7">Bosc de l'Elf Lasgole</text>
-                {/* Trees */}
-                {[555,600,645,690].map((x,i)=>(
-                  <g key={i} transform={`translate(${x},${125+i%2*15})`}>
-                    <path d="M0 65 L15 20 L30 65Z" fill="#040a06" fillOpacity="0.8"/>
-                    <path d="M5 65 L15 8 L25 65Z" fill="#060e08" fillOpacity="0.6"/>
-                  </g>
-                ))}
-                {unlocked[3] && <text x="625" y="232" textAnchor="middle" fill="#4ade80" fontSize="14">✅</text>}
-                {!unlocked[3] && <text x="625" y="232" textAnchor="middle" fill="#0F766E" fontSize="14" fillOpacity="0.5">🔒</text>}
-              </g>
-
-              {/* Corridor H3→H4 */}
-              <rect x="695" y="190" width="30" height="70" rx="4" fill="#1e293b" fillOpacity="0.5"/>
-              <motion.path d="M710 208 L710 248" stroke="#0F766E" strokeWidth="2" strokeDasharray="5,4"
-                animate={{ strokeDashoffset:[0,-18] }} transition={{ duration:1.5,repeat:Infinity,ease:"linear",delay:1 }}/>
-              <polygon points="706,248 710,258 714,248" fill="#0F766E" fillOpacity="0.7"/>
-
-              {/* Room 4 — bottom right, lake */}
-              <g>
-                <rect x="560" y="235" width="290" height="90" rx="6" fill="#BE185D18" stroke="#BE185D" strokeWidth="2" strokeOpacity={unlocked[4]?0.9:0.4}/>
-                <rect x="560" y="235" width="290" height="30" rx="6" fill="#BE185D33"/>
-                <text x="705" y="256" textAnchor="middle" fill="#F9A8D4" fontSize="12" fontWeight="800">Habitació 4</text>
-                <text x="705" y="270" textAnchor="middle" fill="#F9A8D4" fontSize="9" fillOpacity="0.7">Llac dels Follets Isiyava</text>
-                {/* Lake water */}
-                <motion.path d="M575 285 C620 275,680 292,750 282 C800 275,830 290,840 282 L840 318 L575 318Z"
-                  fill="#12092a" fillOpacity="0.8"
-                  animate={{ d:["M575 285 C620 275,680 292,750 282 C800 275,830 290,840 282 L840 318 L575 318Z","M575 287 C620 278,680 290,750 285 C800 278,830 288,840 285 L840 318 L575 318Z","M575 285 C620 275,680 292,750 282 C800 275,830 290,840 282 L840 318 L575 318Z"] }}
-                  transition={{ duration:4,repeat:Infinity }}/>
-                {/* Goblin eyes on lake */}
-                {["#60A5FA","#FCD34D","#86EFAC"].map((c,i)=>(
-                  <motion.g key={i}>
-                    <circle cx={620+i*70} cy={300} r="4" fill={c} fillOpacity="0.8"
-                      animate={{}} />
-                    <motion.circle cx={620+i*70} cy={300} r="4" fill={c}
-                      animate={{ opacity:[0.8,0.1,0.8] }} transition={{ duration:2+i*0.5,repeat:Infinity,delay:i*0.4 }}/>
-                  </motion.g>
-                ))}
-                {unlocked[4] && <text x="705" y="320" textAnchor="middle" fill="#4ade80" fontSize="14">✅</text>}
-                {!unlocked[4] && <text x="705" y="320" textAnchor="middle" fill="#BE185D" fontSize="14" fillOpacity="0.5">🔒</text>}
-              </g>
-
-              {/* Entry gate */}
-              <g transform="translate(40,235)">
-                <rect x="0" y="0" width="50" height="55" rx="4" fill="#07080f" stroke="#475569" strokeWidth="1.5" strokeOpacity="0.5"/>
-                <path d="M0 30 Q25 10 50 30" fill="#07080f" stroke="#475569" strokeWidth="1.5" strokeOpacity="0.4"/>
-                <text x="25" y="48" textAnchor="middle" fill="#64748b" fontSize="9">Entrada</text>
-                {/* Arrow from entry to room 1 */}
-                <motion.path d="M50 28 L58 28" stroke="#7C3AED" strokeWidth="2"
-                  animate={{ opacity:[0.5,1,0.5] }} transition={{ duration:1.5,repeat:Infinity }}/>
-                <polygon points="58,24 66,28 58,32" fill="#7C3AED" fillOpacity="0.8"/>
-              </g>
-
-              {/* Legend */}
-              <g transform="translate(55,310)">
-                <circle cx="8" cy="8" r="6" fill="#4ade80" fillOpacity="0.3" stroke="#4ade80" strokeWidth="1.5"/>
-                <text x="20" y="12" fill="#4ade80" fontSize="10" fillOpacity="0.7">Superada</text>
-                <circle cx="95" cy="8" r="6" fill="none" stroke="#64748b" strokeWidth="1.5" strokeDasharray="2,2"/>
-                <text x="107" y="12" fill="#64748b" fontSize="10">Tancada</text>
-                <motion.path d="M170 8 L195 8" stroke="#7C3AED" strokeWidth="2" strokeDasharray="5,4"
-                  animate={{ strokeDashoffset:[0,-18] }} transition={{ duration:1.5,repeat:Infinity,ease:"linear" }}/>
-                <text x="200" y="12" fill="#94a3b8" fontSize="10">Passadís</text>
-              </g>
-            </svg>
-          </div>
-
-          {/* Clues box */}
-          <div style={{ background:"#0c1929", border:"1px solid #1e3a5f", borderRadius:"14px", overflow:"hidden" }}>
-            <div style={{ padding:"12px 18px", background:"#0c1929", borderBottom:"1px solid #1e3a5f",
-              color:"#60A5FA", fontSize:"12px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em",
-              display:"flex", alignItems:"center", gap:"8px" }}>
-              💡 Pistes que cal tenir en compte
-            </div>
-            <div style={{ padding:"14px 18px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px" }}>
-              {CLUES.map((clue,i)=>(
-                <div key={i} style={{ padding:"10px 14px", background:"#0a1628", borderRadius:"10px",
-                  border:"1px solid #1e3a5f55", color:"#93c5fd", fontSize:"13px", lineHeight:1.5 }}>
-                  {clue}
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
-export default function EscapeRoomMorley() {
-  const [started,  setStarted]  = useState(false);
-  const [current,  setCurrent]  = useState(1);
-  const [unlocked, setUnlocked] = useState({1:false,2:false,3:false,4:false});
-  const [showMap,  setShowMap]  = useState(false);
-  const [ready,    setReady]    = useState(false);
-
-  // Load persisted state once on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get(STORAGE_KEY);
-        if (r) {
-          const s = JSON.parse(r.value);
-          if (s.started  !== undefined) setStarted(!!s.started);
-          if (s.current  !== undefined) setCurrent(clamp(Number(s.current), 1, 4));
-          if (s.unlocked !== undefined) setUnlocked({
-            1:!!s.unlocked[1], 2:!!s.unlocked[2],
-            3:!!s.unlocked[3], 4:!!s.unlocked[4],
-          });
-        }
-      } catch {}
-      setReady(true);
-    })();
-  }, []);
-
-  // Persist on every change (only after initial load)
-  useEffect(() => {
-    if (!ready) return;
-    (async () => {
-      try {
-        await window.storage.set(STORAGE_KEY, JSON.stringify({ started, current, unlocked }));
-      } catch {}
-    })();
-  }, [started, current, unlocked, ready]);
-
-  const unlockedCount = Object.values(unlocked).filter(Boolean).length;
-  const allDone  = unlockedCount === 4;
-  const progress = (unlockedCount / 4) * 100;
-
-  const unlockRoom = useCallback((id) => {
-    setUnlocked(prev => ({ ...prev, [id]:true }));
-    setCurrent(prev => clamp(Math.max(prev, id + 1), 1, 4));
-  }, []);
-
-  const reset = () => {
-    setStarted(false); setCurrent(1); setUnlocked({1:false,2:false,3:false,4:false});
-    try { window.storage.delete(STORAGE_KEY); } catch {}
-  };
-
-  const activeRoom = ROOMS.find(r => r.id === current) ?? ROOMS[0];
-
-  if (!started) return (
-    <AnimatePresence>
-      <IntroScreen onStart={()=>setStarted(true)}/>
-    </AnimatePresence>
-  );
-
-  return (
-    <div style={{ minHeight:"100vh",background:"radial-gradient(ellipse at 20% 20%,#1e0a3c 0%,#050714 50%,#000 100%)",
-      fontFamily:"'Segoe UI',system-ui,sans-serif",color:"#e2e8f0" }}>
-
-      {/* Noise overlay */}
-      <div style={{ position:"fixed",inset:0,backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`,
-        pointerEvents:"none",zIndex:0 }}/>
-
-      <div style={{ position:"relative",zIndex:1,maxWidth:"1100px",margin:"0 auto",padding:"20px 16px" }}>
-
-        {/* TOP BAR */}
-        <div style={{ background:"#08091acc",backdropFilter:"blur(20px)",border:"1px solid #ffffff12",
-          borderRadius:"16px",padding:"16px 24px",marginBottom:"20px",
-          display:"flex",flexWrap:"wrap",alignItems:"center",justifyContent:"space-between",gap:"16px" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:"14px" }}>
-            <div style={{ width:"44px",height:"44px",background:"linear-gradient(135deg,#7C3AED,#BE185D)",
-              borderRadius:"12px",display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:"22px",boxShadow:"0 4px 20px #7C3AED44" }}>🏰</div>
-            <div>
-              <div style={{ fontSize:"16px",fontWeight:900,letterSpacing:"-0.02em",color:"#f1f5f9" }}>
-                Escape Room · El Castell dels Morley
-              </div>
-              <div style={{ fontSize:"11px",color:"#64748b",marginTop:"1px" }}>
-                Física i Química · 2n d'ESO · Separació de mescles
-              </div>
-            </div>
-          </div>
-          <div style={{ display:"flex",alignItems:"center",gap:"16px",flexWrap:"wrap" }}>
-            <div style={{ minWidth:"160px" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",color:"#64748b",fontSize:"11px",marginBottom:"5px" }}>
-                <span>Progrés</span>
-                <span style={{ color:"#94a3b8",fontWeight:600 }}>{unlockedCount}/4 proves</span>
-              </div>
-              <div style={{ height:"6px",background:"#1e293b",borderRadius:"99px",overflow:"hidden" }}>
-                <motion.div animate={{ width:`${progress}%` }} transition={{ duration:0.5,ease:"easeOut" }}
-                  style={{ height:"100%",background:"linear-gradient(90deg,#7C3AED,#BE185D)",borderRadius:"99px" }}/>
-              </div>
-            </div>
-            <button onClick={reset}
-              style={{ background:"#1e293b",border:"1px solid #334155",borderRadius:"10px",
-                padding:"9px 14px",color:"#94a3b8",fontSize:"12px",fontWeight:600,cursor:"pointer",
-                display:"flex",alignItems:"center",gap:"6px" }}>
-              🔄 Reinicia
-            </button>
-          </div>
-        </div>
-
-        {/* GRID */}
-        <div style={{ display:"grid",gridTemplateColumns:"250px 1fr",gap:"20px",alignItems:"start" }}>
-
-          {/* SIDEBAR */}
-          <div style={{ background:"#08091acc",backdropFilter:"blur(20px)",border:"1px solid #ffffff12",
-            borderRadius:"16px",overflow:"hidden",position:"sticky",top:"16px" }}>
-            {/* Clickable map header */}
-            <button onClick={()=>setShowMap(m=>!m)}
-              style={{ width:"100%",padding:"14px 16px",borderBottom:"1px solid #ffffff0f",fontSize:"11px",fontWeight:700,
-                textTransform:"uppercase",letterSpacing:"0.12em",
-                background:showMap?"#7C3AED22":"transparent",
-                color:showMap?"#A78BFA":"#64748b",
-                display:"flex",alignItems:"center",justifyContent:"space-between",
-                border:"none",cursor:"pointer",transition:"all 0.2s" }}>
-              <span style={{ display:"flex",alignItems:"center",gap:"8px" }}>🗺️ Mapa del Castell</span>
-              <span style={{ fontSize:"14px",opacity:0.7 }}>{showMap?"▲":"▼"}</span>
-            </button>
-            <div style={{ padding:"8px" }}>
-              {ROOMS.map(room=>{
-                const isActive = !showMap && room.id === current;
-                const isUnlocked = unlocked[room.id];
-                return (
-                  <button key={room.id} onClick={()=>{ setCurrent(room.id); setShowMap(false); }}
-                    style={{ width:"100%",textAlign:"left",padding:"11px 12px",borderRadius:"12px",
-                      border:`1px solid ${isActive?room.color+"55":"transparent"}`,
-                      background:isActive?`${room.color}18`:"transparent",cursor:"pointer",
-                      display:"flex",alignItems:"center",gap:"10px",marginBottom:"4px",transition:"all 0.15s" }}>
-                    <div style={{ width:"36px",height:"36px",borderRadius:"10px",
-                      background:isUnlocked?"#052e16":"#1e1b4b",
-                      border:`1px solid ${isUnlocked?"#16a34a55":room.color+"44"}`,
-                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:"16px",flexShrink:0 }}>
-                      {isUnlocked?"✅":room.emoji}
-                    </div>
-                    <div style={{ minWidth:0 }}>
-                      <div style={{ color:"#e2e8f0",fontSize:"12px",fontWeight:700 }}>Prova {room.id}</div>
-                      <div style={{ color:"#64748b",fontSize:"11px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
-                        {room.title}
-                      </div>
-                      {isActive&&(
-                        <div style={{ display:"inline-block",marginTop:"3px",padding:"2px 8px",
-                          background:room.color,borderRadius:"99px",color:"white",fontSize:"9px",fontWeight:700 }}>
-                          ARA
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Clues box sidebar */}
-            <div style={{ margin:"8px",padding:"12px",background:"#0c1929",borderRadius:"12px",
-              border:"1px solid #1e3a5f44" }}>
-              <div style={{ color:"#60A5FA",fontSize:"10px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"8px" }}>
-                💡 Pistes generals
-              </div>
-              {CLUES.map((c,i)=>(
-                <div key={i} style={{ color:"#7dd3fc",fontSize:"11px",lineHeight:1.5,marginBottom:"5px" }}>{c}</div>
-              ))}
-            </div>
-
-            <div style={{ padding:"10px 16px 14px",borderTop:"1px solid #ffffff0f" }}>
-              <div style={{ color:"#334155",fontSize:"10px" }}>
-                Codis gestionats per l'objecte <code style={{ color:"#7C3AED" }}>CODES</code> al codi font.
-              </div>
-            </div>
-          </div>
-
-          {/* MAIN */}
-          <div style={{ display:"flex",flexDirection:"column",gap:"16px" }}>
-            <AnimatePresence mode="wait">
-              {showMap
-                ? <CastleMapPanel key="map" unlocked={unlocked} onClose={()=>setShowMap(false)}/>
-                : allDone
-                  ? <FinalScreen key="final" onReset={reset}/>
-                  : <RoomCard key={activeRoom.id} room={activeRoom} unlocked={unlocked[activeRoom.id]} onUnlock={()=>unlockRoom(activeRoom.id)}/>
-              }
-            </AnimatePresence>
-
-            {!allDone && !showMap &&(
-              <div style={{ background:"#08091acc",backdropFilter:"blur(20px)",border:"1px solid #ffffff12",
-                borderRadius:"14px",padding:"14px 20px",display:"flex",
-                alignItems:"center",justifyContent:"space-between",gap:"16px",flexWrap:"wrap" }}>
-                <div style={{ color:"#94a3b8",fontSize:"13px" }}>
-                  <strong style={{ color:"#c4b5fd" }}>Recordeu:</strong> escriviu el procediment pas a pas i justifiqueu per què la tècnica funciona.
-                </div>
-                <div style={{ display:"flex",gap:"10px" }}>
-                  <button onClick={()=>setCurrent(c=>clamp(c-1,1,4))} disabled={current===1}
-                    style={{ background:"#1e293b",border:"1px solid #334155",borderRadius:"10px",padding:"10px 16px",
-                      color:current===1?"#475569":"#94a3b8",fontSize:"13px",fontWeight:600,cursor:current===1?"not-allowed":"pointer" }}>
-                    ← Anterior
-                  </button>
-                  <button onClick={()=>setCurrent(c=>clamp(c+1,1,4))} disabled={current===4}
-                    style={{ background:current===4?"#1e293b":"linear-gradient(135deg,#7C3AED,#6d28d9)",
-                      border:"none",borderRadius:"10px",padding:"10px 16px",
-                      color:current===4?"#475569":"white",fontSize:"13px",fontWeight:600,
-                      cursor:current===4?"not-allowed":"pointer",boxShadow:current===4?"none":"0 4px 16px #7C3AED44" }}>
-                    Següent →
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ textAlign:"center",color:"#1e293b",fontSize:"11px",marginTop:"20px",paddingBottom:"16px" }}>
-          INS Santiago Sobrequés i Vidal · Física i Química 2n ESO · Progrés guardat al navegador
+        <div class="status-badge ${isUnlocked?'unlocked':'locked'}" style="--room-color-44:${hex2rgba(room.color,.44)}">
+          ${isUnlocked ? '✅ Superada' : '🔒 Tancada'}
         </div>
       </div>
     </div>
-  );
+    <div class="card-body">
+      <div class="story-box">${room.story}</div>
+      <div class="illus-wrap" style="--room-color:${room.color};--room-color-33:${hex2rgba(room.color,.33)};--room-color-22:${hex2rgba(room.color,.22)};">
+        <div class="illus-inner">${SVGS[room.id](room.color)}</div>
+        <div class="illus-caption" style="color:${room.glow}">✨ Il·lustració ambiental · ${room.subtitle}</div>
+      </div>
+      ${cluesHTML}
+      <div class="tasks-box" style="--room-color:${room.color};--room-color-18:${hex2rgba(room.color,.18)};--room-color-22:${hex2rgba(room.color,.22)};--room-color-33:${hex2rgba(room.color,.33)};">
+        <div class="tasks-title">📋 Què has de fer a la llibreta</div>
+        <div class="tasks-body">
+          ${room.tasks.map((t,i) => `<div class="task-item">
+            <div class="task-num" style="background:${room.color}">${i+1}</div>
+            <div class="task-text">${t}</div>
+          </div>`).join('')}
+          <div class="task-note"><strong>Recorda:</strong> justifica per què la tècnica escollida funciona i quin instrumental de laboratori és necessari.</div>
+        </div>
+      </div>
+      ${codeGateHTML}
+    </div>`;
+  return div;
 }
+
+function renderMapPanel() {
+  const div = document.createElement('div');
+  div.className = 'map-panel';
+  div.innerHTML = `<div class="map-card">
+    <div class="map-header">
+      <div>
+        <div class="map-title">🗺️ Mapa del Castell dels Morley</div>
+        <div class="map-subtitle">Orientació · Les 4 habitacions</div>
+      </div>
+      <button class="btn-close-map" onclick="toggleMap()">✕ Tanca</button>
+    </div>
+    <div class="map-body">
+      <div class="map-story">
+        Es fa fosc al castell dels Morley… Has caigut en mans dels maleïts comtes Morley. Si no escapes del castell <strong>abans de la mitjanit</strong>, romandràs al seu castell per sempre més. Supera les <strong style="color:#f472b6">quatre proves</strong> i seràs lliure!
+      </div>
+      <div class="map-svg-wrap">${renderMapSVG()}</div>
+      <div class="clues-box">
+        <div class="clues-title">💡 Pistes que cal tenir en compte</div>
+        <div class="clues-grid">
+          <div class="clue-item">🔬 L'alcohol bull a 78,4ºC</div>
+          <div class="clue-item">🧂 La sal és soluble en aigua i en alcohol</div>
+          <div class="clue-item">🍬 El sucre és soluble en aigua però NO en alcohol</div>
+          <div class="clue-item">🟡 El sofre NO és soluble en aigua</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  return div;
+}
+
+function renderFinal() {
+  const div = document.createElement('div');
+  div.innerHTML = `<div class="final-card">
+    <div class="final-body">
+      <span class="final-skull">💀</span>
+      <h2 class="final-title">Heu escapat del castell dels Morley!</h2>
+      <p class="final-text">Felicitats! Heu superat les 4 proves de separació de mescles. Ara toca revisar amb el/la professor·a el raonament, els diagrames i l'instrumental de laboratori de cadascuna.</p>
+      <div class="final-note"><span style="font-size:20px;flex-shrink:0">🎯</span><span>L'objectiu és explicar bé el <strong>raonament</strong>: quina tècnica uses, per què funciona per a cada component i quin instrumental cal per dur-la a terme.</span></div>
+      <br/>
+      <button class="btn-restart" onclick="resetGame()">🔄 Tornar a començar</button>
+    </div>
+  </div>`;
+  return div;
+}
+
+// ═══════════════════════════════════════════════════════
+// MASTER RENDER
+// ═══════════════════════════════════════════════════════
+function render() {
+  renderSidebar();
+  renderProgress();
+  renderMain();
+  saveState();
+}
+
+// ═══════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════
+function startGame() {
+  document.getElementById('intro').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  render();
+}
+
+function toggleMap() {
+  state.showMap = !state.showMap;
+  render();
+}
+
+function goRoom(id) {
+  id = Math.max(1, Math.min(4, id));
+  state.current = id;
+  state.showMap = false;
+  render();
+}
+
+function tryUnlock(roomId) {
+  const input = document.getElementById('code-' + roomId);
+  const msgEl = document.getElementById('code-msg-' + roomId);
+  const val = input.value.replace(/\D/g,'');
+
+  // remove shake
+  input.classList.remove('shake');
+  void input.offsetWidth; // reflow
+
+  if (val.length !== 5) {
+    input.classList.add('shake');
+    msgEl.style.display = 'block';
+    msgEl.className = 'code-msg warn';
+    msgEl.textContent = '⚠️ El codi ha de tenir exactament 5 xifres.';
+    return;
+  }
+  if (val === CODES[roomId]) {
+    msgEl.style.display = 'block';
+    msgEl.className = 'code-msg ok';
+    msgEl.textContent = '✅ Codi correcte! Obrint la porta…';
+    setTimeout(() => {
+      state.unlocked[roomId] = true;
+      const next = Math.min(4, roomId + 1);
+      if (!state.unlocked[next]) state.current = next;
+      render();
+    }, 600);
+  } else {
+    input.classList.add('shake');
+    msgEl.style.display = 'block';
+    msgEl.className = 'code-msg err';
+    msgEl.textContent = '❌ Codi incorrecte. Torneu-ho a provar.';
+  }
+}
+
+function resetGame() {
+  state = { current:1, unlocked:{1:false,2:false,3:false,4:false}, showMap:false };
+  try { localStorage.removeItem(STORAGE_KEY); } catch{}
+  render();
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+(function init() {
+  const saved = loadState();
+  if (saved) {
+    if (saved.current)  state.current  = Math.max(1, Math.min(4, Number(saved.current)));
+    if (saved.unlocked) state.unlocked = {
+      1:!!saved.unlocked[1], 2:!!saved.unlocked[2],
+      3:!!saved.unlocked[3], 4:!!saved.unlocked[4]
+    };
+  }
+  // If previously started, skip intro
+  if (saved && (saved.unlocked?.[1] || saved.current > 1)) {
+    startGame();
+  }
+})();
+</script>
+</body>
+</html>
